@@ -25,6 +25,8 @@ pub trait UnsignedInteger:
     + Display
     + NumericConstants
     + Debug
+    + Copy
+    + Clone
 {
 }
 
