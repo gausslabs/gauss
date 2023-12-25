@@ -1,2 +1,2 @@
-mod modulus;
-mod num;
+pub(crate) mod modulus;
+pub(crate) mod num;

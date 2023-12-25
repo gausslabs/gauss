@@ -1,0 +1,154 @@
+use std::{mem, ops::Mul};
+
+use crate::core_crypto::num::UnsignedInteger;
+
+pub trait FastModularInverse {
+    /// Calculates modular inverse of `a` in `Self`
+    ///
+    /// `a` must be odd
+    ///
+    /// - [Reference](https://jeffhurchalla.com/2022/04/25/a-faster-multiplicative-inverse-mod-a-power-of-2/)
+    fn fast_inverse(a: Self) -> Self;
+}
+
+impl FastModularInverse for u64 {
+    fn fast_inverse(a: Self) -> Self {
+        assert!(a & 1 == 1, "Modulus inverse of {a} does not exit");
+        let three_a = a.wrapping_mul(3);
+        let x0 = three_a.wrapping_mul(three_a);
+        let mut y = 1u64.wrapping_sub(x0.wrapping_mul(a));
+
+        let x1 = x0.wrapping_mul(y.wrapping_add(1));
+        y = y.wrapping_mul(y);
+
+        let x2 = x1.wrapping_mul(y.wrapping_add(1));
+        y = y.wrapping_mul(y);
+
+        let x3 = x2.wrapping_mul(y.wrapping_add(1));
+        y = y.wrapping_mul(y);
+
+        let x4 = x3.wrapping_mul(y.wrapping_add(1));
+        y = y.wrapping_mul(y);
+
+        let x5 = x4.wrapping_mul(y.wrapping_add(1));
+        y = y.wrapping_mul(y);
+
+        let x6 = x5.wrapping_mul(y.wrapping_add(1));
+        x6
+    }
+}
+
+impl FastModularInverse for u32 {
+    fn fast_inverse(a: Self) -> Self {
+        assert!(a & 1 == 1, "Modulus inverse of {a} does not exit");
+
+        let three_a = a.wrapping_mul(3);
+        let x0 = three_a.wrapping_mul(three_a);
+        let mut y = 1u32.wrapping_sub(x0.wrapping_mul(a));
+
+        let x1 = x0.wrapping_mul(y.wrapping_add(1));
+        y = y.wrapping_mul(y);
+
+        let x2 = x1.wrapping_mul(y.wrapping_add(1));
+        y = y.wrapping_mul(y);
+
+        let x3 = x2.wrapping_mul(y.wrapping_add(1));
+        y = y.wrapping_mul(y);
+
+        let x4 = x3.wrapping_mul(y.wrapping_add(1));
+        y = y.wrapping_mul(y);
+
+        let x5 = x4.wrapping_mul(y.wrapping_add(1));
+        x5
+    }
+}
+
+/// Extended GCD algorithm. The funciton calculates the GCD of a & b
+/// and two new variables x & y that satisy ax + by == gcd (i.e. Bezout's identity)
+///
+/// Refer to attached docs for implementation details
+pub fn extended_gcd(mut a: i64, mut b: i64) -> (i64, i64, i64) {
+    let mut swapped = false;
+    if a < b {
+        swapped = true;
+        mem::swap(&mut a, &mut b);
+    }
+
+    let mut r1 = a;
+    let mut r2 = b;
+
+    let mut old_x = 1;
+    let mut old_y = 0;
+    let mut curr_x = 0;
+    let mut curr_y = 1;
+
+    while r2 > 0 {
+        let q = r1 / r2;
+        let rem = r1 % r2;
+
+        let new_x = old_x - q * curr_x;
+        let new_y = old_y - q * curr_y;
+
+        r1 = r2;
+        r2 = rem;
+        old_x = curr_x;
+        old_y = curr_y;
+        curr_x = new_x;
+        curr_y = new_y;
+    }
+
+    if swapped {
+        mem::swap(&mut old_x, &mut old_y)
+    }
+
+    (r1, old_x, old_y)
+}
+
+mod tests {
+    use super::*;
+    use rand::{thread_rng, Rng};
+
+    #[test]
+    fn extended_gcd_works() {
+        let mut rng = thread_rng();
+
+        for _ in 0..1000 {
+            let a = rng.gen_range(0..100000);
+            let b = rng.gen_range(0..100000);
+            let (gcd, x, y) = extended_gcd(a, b);
+
+            // assert bezout's identity
+            assert_eq!(
+                (a.wrapping_mul(x).wrapping_add(b.wrapping_mul(y))),
+                gcd,
+                "
+                Expected {a}x{x} + {b}x{y} == {gcd}
+                "
+            );
+        }
+    }
+
+    #[test]
+    fn fast_modular_inverse_word_size_works() {
+        let mut rng = thread_rng();
+
+        for _ in 0..1 {
+            // multiply by 2 and add 1 to get make sure inputs are odd.
+            let a_u64 = rng.gen::<u64>().wrapping_mul(2).wrapping_add(1);
+            let a_u64_inv = u64::fast_inverse(a_u64);
+            assert_eq!(
+                a_u64.wrapping_mul(a_u64_inv),
+                1,
+                "{a_u64} x {a_u64_inv} (mod 2^64) != 1"
+            );
+
+            let a_u32 = rng.gen::<u32>().wrapping_mul(2).wrapping_add(1);
+            let a_u32_inv = u32::fast_inverse(a_u32);
+            assert_eq!(
+                a_u32.wrapping_mul(a_u32_inv),
+                1,
+                "{a_u32} x {a_u32_inv} (mod 2^32) != 1"
+            );
+        }
+    }
+}
