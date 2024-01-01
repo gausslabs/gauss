@@ -1,6 +1,5 @@
+use crate::core_crypto::modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend};
 use std::{mem, ops::Mul};
-
-use crate::core_crypto::num::UnsignedInteger;
 
 pub trait FastModularInverse {
     /// Calculates modular inverse of `a` in `Self`
@@ -63,6 +62,26 @@ impl FastModularInverse for u32 {
     }
 }
 
+/// Calculates a^n \mod{q} using binary exponentation
+/// TODO (Jay): Add tests for modular expoents
+pub fn mod_exponent(a: u64, mut n: u64, q: u64) -> u64 {
+    let mut a_prod = a;
+    let mut a_n = 1;
+
+    let modulus = NativeModulusBackend::initialise(q);
+
+    while n > 0 {
+        if n & 1 == 1 {
+            a_n = modulus.mul_mod_fast(a_prod, a_n);
+        }
+        a_prod = modulus.mul_mod_fast(a_prod, a_prod);
+
+        n = n >> 1u32;
+    }
+
+    a_n
+}
+
 /// Extended GCD algorithm. The funciton calculates the GCD of a & b
 /// and two new variables x & y that satisy ax + by == gcd (i.e. Bezout's identity)
 ///
@@ -104,6 +123,7 @@ pub fn extended_gcd(mut a: i64, mut b: i64) -> (i64, i64, i64) {
     (r1, old_x, old_y)
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
     use rand::{thread_rng, Rng};

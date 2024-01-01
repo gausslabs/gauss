@@ -4,6 +4,8 @@ mod barrett;
 mod montgomery;
 mod native_backend;
 
+pub use barrett::BarrettBackend;
+pub use montgomery::{MontgomeryBackend, MontgomeryBackendConfig};
 pub use native_backend::NativeModulusBackend;
 
 pub trait ModulusBackendConfig<Scalar> {

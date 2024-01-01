@@ -10,6 +10,7 @@ where
     /// Precomputes modulus specific barrett constant.
     /// We set \alpha = n + 3. Thus \mu = 2^{2*n+3}/modulus
     fn precompute_alpha_and_barrett_constant(modulus: Scalar) -> (usize, Scalar) {
+        //TODO (Jay): Move barrett pre-compute in its own trait (like MontgomeryBackendConfig)
         let modulus_bits = Scalar::BITS - modulus.leading_zeros();
 
         let mu = (1u128 << (modulus_bits * 2 + 3)) / <Scalar as AsPrimitive<u128>>::as_(modulus);

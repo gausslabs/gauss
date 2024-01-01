@@ -76,14 +76,17 @@ impl ModulusVecBackend<u64> for NativeModulusBackend {
 
 impl MontgomeryBackendConfig<u64, u128> for NativeModulusBackend {}
 impl MontgomeryBackend<u64, u128> for NativeModulusBackend {
+    #[inline]
     fn modulus(&self) -> u64 {
         self.modulus
     }
 
+    #[inline]
     fn n_inverse_modr(&self) -> u64 {
         self.n_inv_modr_mont
     }
 
+    #[inline]
     fn r_square_modn(&self) -> u64 {
         self.r_square_modn_mont
     }
