@@ -5,7 +5,7 @@ use crate::utils::mod_exponent;
 /// Find n^{th} root of unity in field F_q, if one exists
 ///
 /// Note: n^{th} root of unity exists if and only if $q = 1 \mod{n}$
-fn find_primitive_root<R: RngCore>(q: u64, n: u64, rng: &mut R) -> Option<u64> {
+pub(crate) fn find_primitive_root<R: RngCore>(q: u64, n: u64, rng: &mut R) -> Option<u64> {
     assert!(n.is_power_of_two(), "{n} is not power of two");
 
     // n^th root of unity only exists if n|(q-1)

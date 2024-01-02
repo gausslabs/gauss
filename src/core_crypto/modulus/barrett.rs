@@ -26,8 +26,16 @@ where
     fn barrett_alpha(&self) -> usize;
 
     fn add_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
-        debug_assert!(a < self.modulus(), "Input {a} >= {}", self.modulus());
-        debug_assert!(b < self.modulus(), "Input {b} >= {}", self.modulus());
+        debug_assert!(
+            a < self.modulus(),
+            "Input {a} > (modulus){}",
+            self.modulus()
+        );
+        debug_assert!(
+            b < self.modulus(),
+            "Input {b} >= (modulus){}",
+            self.modulus()
+        );
 
         let mut c = a + b;
         if c >= self.modulus() {
@@ -37,8 +45,16 @@ where
     }
 
     fn sub_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
-        debug_assert!(a < self.modulus(), "Input {a} >= {}", self.modulus());
-        debug_assert!(b < self.modulus(), "Input {b} >= {}", self.modulus());
+        debug_assert!(
+            a < self.modulus(),
+            "Input {a} >= (modulus){}",
+            self.modulus()
+        );
+        debug_assert!(
+            b < self.modulus(),
+            "Input {b} >= (modulus){}",
+            self.modulus()
+        );
 
         if a >= b {
             a - b
@@ -59,8 +75,16 @@ where
     /// * [Implementation reference](https://github.com/openfheorg/openfhe-development/blob/c48c41cf7893feb94f09c7d95284a36145ec0d5e/src/core/include/math/hal/intnat/ubintnat.h#L1417)
     /// * Note 1: It is possible to do the same without using `ScalarDoubled` (i.e. without u128s in case of u64s).
     fn mul_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
-        debug_assert!(a < self.modulus(), "Input {a} >= {}", self.modulus());
-        debug_assert!(b < self.modulus(), "Input {b} >= {}", self.modulus());
+        debug_assert!(
+            a < self.modulus(),
+            "Input {a} >= (modulus){}",
+            self.modulus()
+        );
+        debug_assert!(
+            b < self.modulus(),
+            "Input {b} >= (modulus){}",
+            self.modulus()
+        );
 
         // a*b
         let ab = <Scalar as AsPrimitive<ScalarDoubled>>::as_(a)

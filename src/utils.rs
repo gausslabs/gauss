@@ -1,5 +1,5 @@
 use crate::core_crypto::modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend};
-use std::{mem, ops::Mul};
+use std::mem;
 
 pub trait FastModularInverse {
     /// Calculates modular inverse of `a` in `Self`
@@ -80,6 +80,13 @@ pub fn mod_exponent(a: u64, mut n: u64, q: u64) -> u64 {
     }
 
     a_n
+}
+
+/// Calculates modular inverse `a^{-1}` of `a` s.t. a * a^{-1} = 1 \mod{q}
+///
+/// TODO (Jay): Add tests and assert whether `q` is prime
+pub fn mod_inverse(a: u64, q: u64) -> u64 {
+    mod_exponent(a, q - 2, q)
 }
 
 /// Extended GCD algorithm. The funciton calculates the GCD of a & b
