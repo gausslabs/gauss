@@ -69,20 +69,20 @@ where
     ///
     /// We implement the generalized barrett reduction
     /// formula described as Algorithm 2 of the this [paper](https://homes.esat.kuleuven.be/~fvercaut/papers/bar_mont.pdf).
-    /// Assuming \log(ab) < 2*n + 3, \gamma < n + 3. Since for correctness \alpha should be \ge (\gamma + 1) and \beta <= -2,
+    /// Assuming \log(ab) < 2*n + 3, \gamma < n + 2. Since for correctness \alpha should be \ge (\gamma + 1) and \beta <= -2,
     /// we set \alpha as (n + 3) and \beta as -2.
     ///
     /// * [Implementation reference](https://github.com/openfheorg/openfhe-development/blob/c48c41cf7893feb94f09c7d95284a36145ec0d5e/src/core/include/math/hal/intnat/ubintnat.h#L1417)
     /// * Note 1: It is possible to do the same without using `ScalarDoubled` (i.e. without u128s in case of u64s).
     fn mul_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
         debug_assert!(
-            a < self.modulus(),
-            "Input {a} >= (modulus){}",
+            a < (self.modulus() * (Scalar::one() + Scalar::one() + Scalar::one() + Scalar::one())),
+            "Input {a} >= (2*modulus){}",
             self.modulus()
         );
         debug_assert!(
-            b < self.modulus(),
-            "Input {b} >= (modulus){}",
+            b < (self.modulus() * (Scalar::one() + Scalar::one() + Scalar::one() + Scalar::one())),
+            "Input {b} >= (2*modulus){}",
             self.modulus()
         );
 

@@ -3,10 +3,12 @@ use super::num::UnsignedInteger;
 mod barrett;
 mod montgomery;
 mod native_backend;
+mod shoup;
 
 pub use barrett::BarrettBackend;
 pub use montgomery::{MontgomeryBackend, MontgomeryBackendConfig};
 pub use native_backend::NativeModulusBackend;
+pub use shoup::ShoupRepresentationFq;
 
 pub trait ModulusBackendConfig<Scalar> {
     fn initialise(modulus: Scalar) -> Self;

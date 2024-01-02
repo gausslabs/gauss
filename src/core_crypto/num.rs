@@ -5,6 +5,8 @@ use num_traits::{
     WrappingMul, WrappingShl, WrappingShr, WrappingSub,
 };
 
+pub trait UnsignedIntegerDoubled {}
+
 pub trait NumericConstants {
     const BITS: u32;
     const MAX: Self;

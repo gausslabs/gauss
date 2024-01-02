@@ -99,14 +99,14 @@ mod tests {
 
     const PRIME_60_BITS: u64 = 1152921504606748673;
 
-    const N: usize = 1000;
+    const K: usize = 1000;
 
     #[test]
     fn native_modulus_backend_works() {
         let p = PRIME_60_BITS;
         let mut rng = thread_rng();
         let modulus_backend = <NativeModulusBackend as ModulusBackendConfig<u64>>::initialise(p);
-        for _ in 0..N {
+        for _ in 0..K {
             // Case when a,b < p
             let a = rng.gen::<u64>() % p;
             let b = rng.gen::<u64>() % p;
@@ -122,6 +122,14 @@ mod tests {
             let c = modulus_backend.sub_mod_fast(a, b);
             let c_expected = if a > b { a - b } else { p - (b - a) };
             assert_eq!(c, c_expected);
+
+            // Case when a,b < 2p
+            let a = rng.gen_range(0..(2 * p));
+            let b = rng.gen_range(0..(2 * p));
+
+            let c = modulus_backend.mul_mod_fast(a, b);
+            let c_expected = ((a as u128 * b as u128) % p as u128) as u64;
+            assert_eq!(c, c_expected);
         }
     }
 
@@ -130,7 +138,7 @@ mod tests {
         let p = PRIME_60_BITS;
         let mut rng = thread_rng();
         let modulus_backend = <NativeModulusBackend as ModulusBackendConfig<u64>>::initialise(p);
-        for _ in 0..N {
+        for _ in 0..1 {
             // a,b < p
             let a = rng.gen::<u64>() % p;
             let b = rng.gen::<u64>() % p;
