@@ -6,7 +6,7 @@ mod native_backend;
 mod shoup;
 
 pub use barrett::BarrettBackend;
-pub use montgomery::{MontgomeryBackend, MontgomeryBackendConfig};
+pub use montgomery::{MontgomeryBackend, MontgomeryBackendConfig, MontgomeryScalar};
 pub use native_backend::NativeModulusBackend;
 pub use shoup::ShoupRepresentationFq;
 

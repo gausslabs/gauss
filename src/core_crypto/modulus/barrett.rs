@@ -25,6 +25,11 @@ where
 
     fn barrett_alpha(&self) -> usize;
 
+    fn barrett_reduce(&self, a: Scalar) -> Scalar {
+        // TODO (Jay): replace this by barrett reduce routine
+        a % self.modulus()
+    }
+
     fn add_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
         debug_assert!(
             a < self.modulus(),
