@@ -1,4 +1,5 @@
 use crate::{core_crypto::num::UnsignedInteger, utils::FastModularInverse};
+use itertools::izip;
 use num_traits::AsPrimitive;
 
 /// Wrapper around `MontgomeryScalar`s.
@@ -83,7 +84,14 @@ where
     /// For a & b in Montgomery space, outputs `o = ab*r^{-1} (mod n)`,
     /// where `n` is the original modulus and `o \in [0,n)`
     ///
-    /// - [Reference](https://en.algorithmica.org/hpc/number-theory/montgomery/)
+    /// In general, a*b should in range [0, qr). We assume q is smaller 2^{60}.
+    /// If r = 2^64, \log{qr} = 64 + 60 = 124. Therefore a and b can be range [0, 2q)
+    ///
+    /// - [Reference 1](https://en.algorithmica.org/hpc/number-theory/montgomery/)
+    /// - [Reference 2](https://jeffhurchalla.com/2022/04/29/optimized-montgomery-multiplication-with-smaller-modulus-sizes/)
+    ///
+    /// TODO (Jay):
+    ///     - Check whether multiplication works for a & b in range [0, 2q)
     fn mont_mul(
         &self,
         a: MontgomeryScalar<Scalar>,
@@ -131,6 +139,28 @@ where
         let ab_hi = (ab >> r).as_();
 
         MontgomeryScalar(ab_hi + n - m)
+    }
+
+    /// Caculates $\sum{a_i * b_i} \mod{q}$ in Montgomery space.
+    ///
+    /// Inputs should be in range [0, 2q) and output is in range [0, q)
+    ///
+    /// TODO (Jay):
+    ///     - Don't use mont_mul instead use mont_mul_lazy
+    ///     - Apparently FMA can be optmised further. Check https://jeffhurchalla.com/2022/05/01/the-montgomery-multiply-accumulate/
+    fn mont_fma(
+        &self,
+        a: &[MontgomeryScalar<Scalar>],
+        b: &[MontgomeryScalar<Scalar>],
+    ) -> MontgomeryScalar<Scalar> {
+        debug_assert!(a.len() == b.len(), "Length of a and b are not equal");
+
+        let mut sum = MontgomeryScalar::zero();
+        izip!(a.iter(), b.iter()).for_each(|(a0, b0)| {
+            let tmp = self.mont_mul(*a0, *b0);
+            sum = self.mont_add(tmp, sum);
+        });
+        sum
     }
 
     /// Transforms input scalar from normal space to montogmery space.

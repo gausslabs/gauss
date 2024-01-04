@@ -59,27 +59,12 @@ pub fn scale_and_round<
             .map(|(x, mod_op)| mod_op.normal_to_mont_space(*x))
             .collect_vec();
 
-        // TODO (Jay): We use mont_mul and, since this is a hot path, the final conditional check in mont_mul to reduce from [0, 2q) to [0, q) will be expensive.
-        // What we really need is fused mul and add and until end we don't really care about whether the output is in
-        // range [0, 2q). So we can replace mont_mul with mont_mul_lazy. However, we don't use mont_mul_lazy right now because Montegomery backend does
-        // not support inputs to be in range [0, 2q). Keeping this comment here as a reminder to add support for lazy inputs in Montgomery backend and subsequently
-        // change this. Following are a few links that may come handy:
-        // - https://jeffhurchalla.com/2022/04/29/optimized-montgomery-multiplication-with-smaller-modulus-sizes/
-        // - https://jeffhurchalla.com/2022/05/01/the-montgomery-multiply-accumulate/
-        // - https://jeffhurchalla.com/2022/04/28/montgomery-redc-using-the-positive-inverse-mod-r/
         for i in 0..q_size {
-            let mut sum_rational = MontgomeryScalar::<u64>::zero();
             let qi_mod_op = q_mod_operators.get(i).unwrap();
 
-            for j in 0..p_size {
-                let tmp = qi_mod_op.mont_mul(
-                    xjs_in_mont[j],
-                    qp_over_pj_inv_modpj_mul_q_modqi_rational[i][j],
-                );
-
-                // qx_i += px_j * \omega_j  \mod q_i
-                sum_rational = qi_mod_op.mont_add(tmp, sum_rational);
-            }
+            // \sum px_j * \omega_j
+            let mut sum_rational =
+                qi_mod_op.mont_fma(&xjs_in_mont, &qp_over_pj_inv_modpj_mul_q_modqi_rational[i]);
 
             // qx_i * [(qp/q_i)^{-1}]_{q_i} * qp/q_i \mod qi
             let mut qx_i = qi_mod_op.normal_to_mont_space(*q_in.get_index(n, i));
