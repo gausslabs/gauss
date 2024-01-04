@@ -139,7 +139,7 @@ mod tests {
         let mut rng = thread_rng();
         let modulus_backend = <NativeModulusBackend as ModulusBackendConfig<u64>>::initialise(p);
         for _ in 0..1 {
-            // a,b < p
+            // Case a,b < p
             let a = rng.gen::<u64>() % p;
             let b = rng.gen::<u64>() % p;
 
@@ -156,7 +156,6 @@ mod tests {
 
             // montgomery multiplication
             let c_mont = modulus_backend.mont_mul(a_mont, b_mont);
-
             // Back to normal space
             let c = modulus_backend.mont_to_normal(c_mont);
             let c_expected = ((a as u128 * b as u128) % p as u128) as u64;

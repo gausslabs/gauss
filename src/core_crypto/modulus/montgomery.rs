@@ -7,6 +7,12 @@ use num_traits::AsPrimitive;
 #[derive(Clone, Copy)]
 pub struct MontgomeryScalar<Scalar: UnsignedInteger>(Scalar);
 
+impl<Scalar: UnsignedInteger> MontgomeryScalar<Scalar> {
+    pub fn zero() -> Self {
+        MontgomeryScalar(Scalar::zero())
+    }
+}
+
 impl<Scalar: UnsignedInteger> std::fmt::Display for MontgomeryScalar<Scalar> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "MontgomeryScalar({})", self.0)?;
