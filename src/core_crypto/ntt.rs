@@ -237,23 +237,12 @@ impl NativeNTTBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core_crypto::num::UnsignedInteger;
-    use rand::{distributions::Uniform, Rng};
+    use crate::utils::test_utils::random_vec_in_fq;
 
     const Q_60_BITS: u64 = 1152921504606748673;
     const N: u64 = 1 << 4;
 
     const K: usize = 128;
-
-    fn random_vec_in_fq<T: UnsignedInteger + rand::distributions::uniform::SampleUniform>(
-        size: usize,
-        q: T,
-    ) -> Vec<T> {
-        let rng = thread_rng();
-        rng.sample_iter(Uniform::new(T::zero(), q))
-            .take(size)
-            .collect_vec()
-    }
 
     #[test]
     fn native_ntt_backend_works() {
