@@ -1,6 +1,9 @@
 use crate::core_crypto::modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend};
 use std::mem;
 
+#[cfg(test)]
+pub(crate) mod test_utils;
+
 pub trait FastModularInverse {
     /// Calculates modular inverse of `a` in `Self`
     ///

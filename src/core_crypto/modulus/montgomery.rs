@@ -6,7 +6,7 @@ use num_traits::AsPrimitive;
 ///
 /// This is just to prevent cross-arithmatic between Scalars in Montgomery space and Scalars in Normal space.
 #[derive(Clone, Copy)]
-pub struct MontgomeryScalar<Scalar: UnsignedInteger>(Scalar);
+pub struct MontgomeryScalar<Scalar: UnsignedInteger>(pub(crate) Scalar);
 
 impl<Scalar: UnsignedInteger> MontgomeryScalar<Scalar> {
     pub fn zero() -> Self {
@@ -42,6 +42,8 @@ where
     ScalarDoubled: UnsignedInteger + AsPrimitive<Scalar> + 'static,
 {
     fn modulus(&self) -> Scalar;
+
+    fn modulus_twice(&self) -> Scalar;
 
     /// n^{-1} (mod r) where n is the original modulus
     fn n_inverse_modr(&self) -> Scalar;
@@ -89,9 +91,6 @@ where
     ///
     /// - [Reference 1](https://en.algorithmica.org/hpc/number-theory/montgomery/)
     /// - [Reference 2](https://jeffhurchalla.com/2022/04/29/optimized-montgomery-multiplication-with-smaller-modulus-sizes/)
-    ///
-    /// TODO (Jay):
-    ///     - Check whether multiplication works for a & b in range [0, 2q)
     fn mont_mul(
         &self,
         a: MontgomeryScalar<Scalar>,
@@ -146,7 +145,6 @@ where
     /// Inputs should be in range [0, 2q) and output is in range [0, q)
     ///
     /// TODO (Jay):
-    ///     - Don't use mont_mul instead use mont_mul_lazy
     ///     - Apparently FMA can be optmised further. Check https://jeffhurchalla.com/2022/05/01/the-montgomery-multiply-accumulate/
     fn mont_fma(
         &self,
@@ -155,10 +153,18 @@ where
     ) -> MontgomeryScalar<Scalar> {
         debug_assert!(a.len() == b.len(), "Length of a and b are not equal");
 
+        let q = self.modulus();
+
         let mut sum = MontgomeryScalar::zero();
         izip!(a.iter(), b.iter()).for_each(|(a0, b0)| {
-            let tmp = self.mont_mul(*a0, *b0);
-            sum = self.mont_add(tmp, sum);
+            let tmp = self.mont_mul_lazy(*a0, *b0);
+
+            // This is same as mont_add but we need this because `mont_add` assumes inputs are \in [0,q). Whereas tmp + sum
+            // is in range [0, 3q). It works because the output `sum` is in range [0, 2q), the expected input range for `mul_lazy`
+            sum.0 = sum.0 + tmp.0;
+            if sum.0 > q {
+                sum.0 -= q;
+            }
         });
         sum
     }
