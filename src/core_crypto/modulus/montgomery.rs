@@ -174,6 +174,9 @@ where
     ///
     /// We precompute r^2 (mod n) and calculate
     /// (a * r^2)r^{-1} = a *r (mod n) instead
+    ///
+    /// Note that `mont_mul` accepts input in range [0, nr). Since (r^2 % n) < n,
+    /// input `a` must be < r (i.e. 2^{64} if Scalae is u64)
     fn normal_to_mont_space(&self, a: Scalar) -> MontgomeryScalar<Scalar> {
         self.mont_mul(MontgomeryScalar(a), MontgomeryScalar(self.r_square_modn()))
     }

@@ -1,6 +1,13 @@
-use crate::core_crypto::modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend};
+use num_bigint::{BigUint, ToBigUint};
+use num_traits::One;
+
+use crate::core_crypto::{
+    modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend},
+    num::UnsignedInteger,
+};
 use std::mem;
 
+pub(crate) mod convert;
 #[cfg(test)]
 pub(crate) mod test_utils;
 
@@ -131,6 +138,17 @@ pub fn extended_gcd(mut a: i64, mut b: i64) -> (i64, i64, i64) {
     }
 
     (r1, old_x, old_y)
+}
+
+pub fn moduli_chain_to_biguint<T: UnsignedInteger>(moduli_chain: &[T]) -> BigUint
+where
+    BigUint: From<T>,
+{
+    let mut big_q = BigUint::one();
+    moduli_chain
+        .iter()
+        .for_each(|qi| big_q *= BigUint::from(*qi));
+    big_q
 }
 
 #[cfg(test)]
