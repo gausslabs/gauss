@@ -10,7 +10,7 @@ use rand::{
 };
 
 pub struct NativeModulusBackend {
-    modulus: u64,
+    pub(crate) modulus: u64,
     modulus_twice: u64,
 
     barrett_constant: u64,
@@ -103,8 +103,9 @@ impl MontgomeryBackend<u64, u128> for NativeModulusBackend {
     }
 }
 
-impl<'a, R: CryptoRng + RngCore + 'a> ModulusRandomVecInDistGenerator<'a, u64, R>
-    for NativeModulusBackend
+impl<'a, R> ModulusRandomVecInDistGenerator<'a, u64, R> for NativeModulusBackend
+where
+    R: CryptoRng + RngCore + 'a,
 {
     type IteratorGaussian =
         std::iter::Take<DistIter<rand::distributions::Uniform<u64>, &'a mut R, u64>>;

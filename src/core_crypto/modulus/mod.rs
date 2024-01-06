@@ -27,7 +27,7 @@ where
 pub trait ModulusRandomVecInDistGenerator<'a, Scalar, R>
 where
     Scalar: UnsignedInteger,
-    R: Rng + 'a,
+    R: Rng,
 {
     type IteratorUniform: Iterator<Item = Scalar>;
     type IteratorGaussian: Iterator<Item = Scalar>;

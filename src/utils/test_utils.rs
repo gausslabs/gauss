@@ -1,4 +1,10 @@
-use crate::core_crypto::{num::UnsignedInteger, ring::Matrix};
+use std::{marker::PhantomData, os::unix::thread};
+
+use crate::core_crypto::{
+    num::UnsignedInteger,
+    random::RandomUniformDist,
+    ring::{Matrix, MatrixMut, MatrixRef},
+};
 use itertools::Itertools;
 use ndarray::{iter::Iter, Array2, ArrayBase, Axis, Dim, IndexLonger, ViewRepr};
 use rand::{distributions::Uniform, thread_rng, Rng};
@@ -13,19 +19,19 @@ pub fn random_vec_in_fq<T: UnsignedInteger + rand::distributions::uniform::Sampl
         .collect_vec()
 }
 
-pub struct NativeVector {
+pub struct TestMatrix {
     data: ndarray::Array2<u64>,
     rows: usize,
     cols: usize,
 }
 
-pub struct NativeVectorIteratorRef<'a> {
+pub struct TestMatrixIteratorRef<'a> {
     data: ArrayBase<ViewRepr<&'a u64>, Dim<[usize; 1]>>,
     index: usize,
     length: usize,
 }
 
-impl<'a> Iterator for NativeVectorIteratorRef<'a> {
+impl<'a> Iterator for TestMatrixIteratorRef<'a> {
     type Item = &'a u64;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.length {
@@ -38,7 +44,7 @@ impl<'a> Iterator for NativeVectorIteratorRef<'a> {
     }
 }
 
-impl<'a> From<ArrayBase<ViewRepr<&'a u64>, Dim<[usize; 1]>>> for NativeVectorIteratorRef<'a> {
+impl<'a> From<ArrayBase<ViewRepr<&'a u64>, Dim<[usize; 1]>>> for TestMatrixIteratorRef<'a> {
     fn from(value: ArrayBase<ViewRepr<&'a u64>, Dim<[usize; 1]>>) -> Self {
         Self {
             data: value,
@@ -48,13 +54,13 @@ impl<'a> From<ArrayBase<ViewRepr<&'a u64>, Dim<[usize; 1]>>> for NativeVectorIte
     }
 }
 
-pub struct NativeVectorIteratorMutRef<'a> {
+pub struct TestMatrixIteratorMutRef<'a> {
     data: ArrayBase<ViewRepr<&'a mut u64>, Dim<[usize; 1]>>,
     index: usize,
     length: usize,
 }
 
-impl<'a> Iterator for NativeVectorIteratorMutRef<'a> {
+impl<'a> Iterator for TestMatrixIteratorMutRef<'a> {
     type Item = &'a mut u64;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.length {
@@ -68,9 +74,7 @@ impl<'a> Iterator for NativeVectorIteratorMutRef<'a> {
     }
 }
 
-impl<'a> From<ArrayBase<ViewRepr<&'a mut u64>, Dim<[usize; 1]>>>
-    for NativeVectorIteratorMutRef<'a>
-{
+impl<'a> From<ArrayBase<ViewRepr<&'a mut u64>, Dim<[usize; 1]>>> for TestMatrixIteratorMutRef<'a> {
     fn from(value: ArrayBase<ViewRepr<&'a mut u64>, Dim<[usize; 1]>>) -> Self {
         Self {
             length: value.len(),
@@ -80,12 +84,9 @@ impl<'a> From<ArrayBase<ViewRepr<&'a mut u64>, Dim<[usize; 1]>>>
     }
 }
 
-impl<'a> Matrix<'a, u64> for NativeVector {
-    type IteratorMutRef = NativeVectorIteratorMutRef<'a>;
-    type IteratorRef = NativeVectorIteratorRef<'a>;
-
-    fn new(rows: usize, cols: usize) -> Self {
-        NativeVector {
+impl Matrix<u64> for TestMatrix {
+    fn zeros(rows: usize, cols: usize) -> Self {
+        TestMatrix {
             data: ndarray::Array2::<u64>::zeros((rows, cols)),
             rows,
             cols,
@@ -94,8 +95,16 @@ impl<'a> Matrix<'a, u64> for NativeVector {
 
     fn from_values(rows: usize, cols: usize, values: Vec<u64>) -> Self {
         let data = ndarray::Array2::<u64>::from_shape_vec((rows, cols), values).unwrap();
-        NativeVector { data, rows, cols }
+        TestMatrix { data, rows, cols }
     }
+
+    fn dimension(&self) -> (usize, usize) {
+        (self.rows, self.cols)
+    }
+}
+
+impl<'a> MatrixRef<'a, u64> for TestMatrix {
+    type IteratorRef = TestMatrixIteratorRef<'a>;
 
     fn get_col(&'a self, index: usize) -> Self::IteratorRef {
         self.data.column(index).into()
@@ -105,16 +114,20 @@ impl<'a> Matrix<'a, u64> for NativeVector {
         self.data.row(index).into()
     }
 
+    fn get(&'a self, row: usize, col: usize) -> &'a u64 {
+        self.data.get((row, col)).unwrap()
+    }
+}
+
+impl<'a> MatrixMut<'a, u64> for TestMatrix {
+    type IteratorMutRef = TestMatrixIteratorMutRef<'a>;
+
     fn get_col_mut(&'a mut self, index: usize) -> Self::IteratorMutRef {
         self.data.column_mut(index).into()
     }
 
     fn get_row_mut(&'a mut self, index: usize) -> Self::IteratorMutRef {
         self.data.column_mut(index).into()
-    }
-
-    fn get(&'a self, row: usize, col: usize) -> &'a u64 {
-        self.data.get((row, col)).unwrap()
     }
 
     fn get_mut(&'a mut self, row: usize, col: usize) -> &'a u64 {
@@ -124,15 +137,38 @@ impl<'a> Matrix<'a, u64> for NativeVector {
     fn set(&mut self, row: usize, col: usize, value: u64) {
         *self.data.get_mut((row, col)).unwrap() = value;
     }
+}
 
-    fn dimension(&self) -> (usize, usize) {
-        (self.rows, self.cols)
+pub struct TestRng {}
+
+impl RandomUniformDist<u64, TestMatrix> for TestRng {
+    fn random_ring_poly(&self, moduli_chain: &[u64], ring_size: usize) -> TestMatrix {
+        let mut rng = thread_rng();
+        let els = moduli_chain
+            .iter()
+            .flat_map(|qi| {
+                (&mut rng)
+                    .sample_iter(Uniform::new(0, *qi))
+                    .take(ring_size)
+                    .collect_vec()
+            })
+            .collect_vec();
+
+        TestMatrix::from_values(moduli_chain.len(), ring_size, els)
+    }
+
+    fn random_vec_in_modulus(&self, modulus: u64, size: usize) -> Vec<u64> {
+        let rng = thread_rng();
+        rng.sample_iter(Uniform::new(0, modulus))
+            .take(size)
+            .collect_vec()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use itertools::izip;
+    use rand::{CryptoRng, RngCore};
 
     use super::*;
 
@@ -145,7 +181,7 @@ mod tests {
             .take(rows * cols)
             .collect_vec();
 
-        let mat = NativeVector::from_values(rows, cols, a.clone());
+        let mat = TestMatrix::from_values(rows, cols, a.clone());
 
         // Check iteration over all columns
         for i in 0..cols {
