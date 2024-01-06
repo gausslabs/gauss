@@ -1,9 +1,13 @@
 use super::{
     barrett::BarrettBackend,
     montgomery::{MontgomeryBackend, MontgomeryBackendConfig},
-    ModulusBackendConfig, ModulusVecBackend,
+    ModulusBackendConfig, ModulusRandomVecInDistGenerator, ModulusVecBackend,
 };
-use itertools::izip;
+use itertools::{izip, Itertools};
+use rand::{
+    distributions::{DistIter, Uniform},
+    CryptoRng, Rng, RngCore,
+};
 
 pub struct NativeModulusBackend {
     modulus: u64,
@@ -96,6 +100,32 @@ impl MontgomeryBackend<u64, u128> for NativeModulusBackend {
     #[inline]
     fn r_square_modn(&self) -> u64 {
         self.r_square_modn_mont
+    }
+}
+
+impl<'a, R: CryptoRng + RngCore + 'a> ModulusRandomVecInDistGenerator<'a, u64, R>
+    for NativeModulusBackend
+{
+    type IteratorGaussian =
+        std::iter::Take<DistIter<rand::distributions::Uniform<u64>, &'a mut R, u64>>;
+    type IteratorUniform =
+        std::iter::Take<DistIter<rand::distributions::Uniform<u64>, &'a mut R, u64>>;
+
+    fn random_vec_gaussian_dist_modulus(
+        &self,
+        std_dev: usize,
+        size: usize,
+        rng: &mut R,
+    ) -> Self::IteratorGaussian {
+        todo!()
+    }
+
+    fn random_vec_unifrom_dist_modulus(
+        &self,
+        size: usize,
+        rng: &'a mut R,
+    ) -> Self::IteratorUniform {
+        rng.sample_iter(Uniform::new(0, self.modulus)).take(size)
     }
 }
 
