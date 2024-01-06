@@ -1,6 +1,6 @@
 use crate::core_crypto::{num::UnsignedInteger, ring::Matrix};
 use itertools::Itertools;
-use ndarray::{Array2, ArrayBase, Axis, Dim, IndexLonger, ViewRepr};
+use ndarray::{iter::Iter, Array2, ArrayBase, Axis, Dim, IndexLonger, ViewRepr};
 use rand::{distributions::Uniform, thread_rng, Rng};
 
 pub fn random_vec_in_fq<T: UnsignedInteger + rand::distributions::uniform::SampleUniform>(
@@ -19,13 +19,13 @@ pub struct NativeVector {
     cols: usize,
 }
 
-struct NativeVectorIterator<'a> {
+pub struct NativeVectorIteratorRef<'a> {
     data: ArrayBase<ViewRepr<&'a u64>, Dim<[usize; 1]>>,
     index: usize,
     length: usize,
 }
 
-impl<'a> Iterator for NativeVectorIterator<'a> {
+impl<'a> Iterator for NativeVectorIteratorRef<'a> {
     type Item = &'a u64;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.length {
@@ -38,7 +38,7 @@ impl<'a> Iterator for NativeVectorIterator<'a> {
     }
 }
 
-impl<'a> From<ArrayBase<ViewRepr<&'a u64>, Dim<[usize; 1]>>> for NativeVectorIterator<'a> {
+impl<'a> From<ArrayBase<ViewRepr<&'a u64>, Dim<[usize; 1]>>> for NativeVectorIteratorRef<'a> {
     fn from(value: ArrayBase<ViewRepr<&'a u64>, Dim<[usize; 1]>>) -> Self {
         Self {
             data: value,
@@ -48,7 +48,42 @@ impl<'a> From<ArrayBase<ViewRepr<&'a u64>, Dim<[usize; 1]>>> for NativeVectorIte
     }
 }
 
-impl<'a> Matrix<'a, u64, NativeVectorIterator<'a>> for NativeVector {
+pub struct NativeVectorIteratorMutRef<'a> {
+    data: ArrayBase<ViewRepr<&'a mut u64>, Dim<[usize; 1]>>,
+    index: usize,
+    length: usize,
+}
+
+impl<'a> Iterator for NativeVectorIteratorMutRef<'a> {
+    type Item = &'a mut u64;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.length {
+            return None;
+        }
+
+        let prev = self.index;
+        self.index = prev + 1;
+        let value = unsafe { &mut *self.data.get_mut_ptr(0).unwrap() };
+        Some(value)
+    }
+}
+
+impl<'a> From<ArrayBase<ViewRepr<&'a mut u64>, Dim<[usize; 1]>>>
+    for NativeVectorIteratorMutRef<'a>
+{
+    fn from(value: ArrayBase<ViewRepr<&'a mut u64>, Dim<[usize; 1]>>) -> Self {
+        Self {
+            length: value.len(),
+            data: value,
+            index: 0,
+        }
+    }
+}
+
+impl<'a> Matrix<'a, u64> for NativeVector {
+    type IteratorMutRef = NativeVectorIteratorMutRef<'a>;
+    type IteratorRef = NativeVectorIteratorRef<'a>;
+
     fn new(rows: usize, cols: usize) -> Self {
         NativeVector {
             data: ndarray::Array2::<u64>::zeros((rows, cols)),
@@ -62,36 +97,32 @@ impl<'a> Matrix<'a, u64, NativeVectorIterator<'a>> for NativeVector {
         NativeVector { data, rows, cols }
     }
 
-    fn iter_cols(&self) -> NativeVectorIterator<'a> {
-        todo!()
-    }
-    fn iter_cols_mut(&self) -> NativeVectorIterator<'a> {
-        todo!()
-    }
-
-    fn iter_rows(&self) -> NativeVectorIterator<'a> {
-        todo!()
-    }
-    fn iter_rows_mut(&self) -> NativeVectorIterator<'a> {
-        todo!()
-    }
-
-    fn get_col(&self, index: usize) -> NativeVectorIterator<'_> {
+    fn get_col(&'a self, index: usize) -> Self::IteratorRef {
         self.data.column(index).into()
     }
-    fn get_row(&self, index: usize) -> NativeVectorIterator<'_> {
+
+    fn get_row(&'a self, index: usize) -> Self::IteratorRef {
         self.data.row(index).into()
     }
 
-    fn get_index(&self, x: usize, y: usize) -> &u64 {
-        self.data.get((x, y)).unwrap()
-    }
-    fn get_index_mut(&mut self, x: usize, y: usize) -> &mut u64 {
-        self.data.get_mut((x, y)).unwrap()
+    fn get_col_mut(&'a mut self, index: usize) -> Self::IteratorMutRef {
+        self.data.column_mut(index).into()
     }
 
-    fn set_index(&mut self, x: usize, y: usize, value: u64) {
-        *self.data.get_mut((x, y)).unwrap() = value;
+    fn get_row_mut(&'a mut self, index: usize) -> Self::IteratorMutRef {
+        self.data.column_mut(index).into()
+    }
+
+    fn get(&'a self, row: usize, col: usize) -> &'a u64 {
+        self.data.get((row, col)).unwrap()
+    }
+
+    fn get_mut(&'a mut self, row: usize, col: usize) -> &'a u64 {
+        self.data.get_mut((row, col)).unwrap()
+    }
+
+    fn set(&mut self, row: usize, col: usize, value: u64) {
+        *self.data.get_mut((row, col)).unwrap() = value;
     }
 
     fn dimension(&self) -> (usize, usize) {
@@ -101,6 +132,8 @@ impl<'a> Matrix<'a, u64, NativeVectorIterator<'a>> for NativeVector {
 
 #[cfg(test)]
 mod tests {
+    use itertools::izip;
+
     use super::*;
 
     #[test]
@@ -114,16 +147,18 @@ mod tests {
 
         let mat = NativeVector::from_values(rows, cols, a.clone());
 
-        // Check iteration over a given column
+        // Check iteration over all columns
         for i in 0..cols {
-            mat.get_col(1).for_each(|v| {
+            mat.get_col(i).for_each(|v| {
                 assert!(a[i] == *v);
             });
         }
 
         // Check iteration over the 1st row
         for i in 0..rows {
-            
+            izip!(a.iter(), mat.get_row(i)).for_each(|(a0, v0)| {
+                assert_eq!(a0, v0);
+            });
         }
     }
 }
