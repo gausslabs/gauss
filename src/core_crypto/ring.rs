@@ -28,6 +28,69 @@ pub trait Matrix<T> {
     fn dimension(&self) -> (usize, usize);
 }
 
+/// Given input polnyomial x \in Q outputs $[\lceil \frac{P \cdot x}{Q} \rfloor]_P$
+/// 
+/// We implement "Modulus Switching between Arbitrary RNS Bases" presented in 
+/// Appendix E of [2021/204](https://eprint.iacr.org/2021/204.pdf).
+pub fn fast_convert_p_over_q<
+    'a,
+    MRef: MatrixRef<'a, u64>,
+    MMut: MatrixMut<'a, u64>,
+    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
+>(
+    p_out: &mut MMut,
+    q_in: &'a MRef,
+    neg_p_times_q_over_qi_inv_modqi: &[u64],
+    qi_inv_per_modpj: &[Vec<MontgomeryScalar<u64>>],
+    one_over_qi: &[f64],
+    modq_operators: &[ModOps],
+    modp_operators: &[ModOps],
+    q_size: usize,
+    p_size: usize,
+    ring_size: usize,
+) {
+    for ri in 0..ring_size {
+        let mut mu = 0.5f64;
+        // qxi_values = for each i: qxi * [-p(q/qi)^{-1}]_q_i \mod{q_i}
+        let qxi_values = izip!(
+            q_in.get_col(ri),
+            neg_p_times_q_over_qi_inv_modqi.iter(),
+            one_over_qi.iter(),
+            modq_operators.iter()
+        )
+        .map(|(qxi, op, one_over_qi_v, modqi)| {
+            // qxi * [-p(q/qi)^{-1}]_q_i \mod{q_i}
+            let value = modqi.mul_mod_fast(*qxi, *op);
+
+            // To estimate \mu: value * \frac{1}{q_i}
+            mu += (value as f64 * one_over_qi_v);
+
+            value
+        })
+        .collect_vec();
+
+        let mu = mu as u64;
+
+        for j in 0..p_size {
+            let modpj = &modp_operators[j];
+            let qxi_values_mont = qxi_values
+                .iter()
+                .map(|x| modpj.normal_to_mont_space(*x))
+                .collect_vec();
+
+            // \sum qxi_values[i] * q_i^{-1} \mod{p_j}
+            let out_in_pj = modpj.mont_fma(&qxi_values_mont, &qi_inv_per_modpj[j]);
+            let mut out_in_pj = modpj.mont_to_normal(out_in_pj);
+
+            // subtract oveflow \mu
+            out_in_pj = modpj.sub_mod_fast(out_in_pj, mu);
+
+            p_out.set(j, ri, out_in_pj);
+        }
+    }
+}
+
+/// Switches basis of a polynomial in Q basis to P basis
 pub fn switch_crt_basis<
     'a,
     MRef: MatrixRef<'a, u64>,
@@ -80,12 +143,11 @@ pub fn switch_crt_basis<
                 .collect_vec();
 
             // [[input]_Q + \mu Q]_p_j =  \sum [q_valules_i]_p_j * q/q_i \mod{p_j}
-            let mut input_modpj =
-                modpj.mont_fma(&qxi_times_q_hat_inv_modpj, &q_over_qi_per_modpj[j]);
+            let mut out_in_pj = modpj.mont_fma(&qxi_times_q_hat_inv_modpj, &q_over_qi_per_modpj[j]);
 
             // subtract overflow: \mu Q
-            input_modpj = modpj.mont_sub(input_modpj, mu_times_q_per_modpj[j][mu]);
-            let input_modpj = modpj.mont_to_normal(input_modpj);
+            out_in_pj = modpj.mont_sub(out_in_pj, mu_times_q_per_modpj[j][mu]);
+            let input_modpj = modpj.mont_to_normal(out_in_pj);
 
             p_out.set(j, ri, input_modpj);
         }
@@ -180,6 +242,95 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn fast_convert_p_over_q_works() {
+        let n = 1 << 4;
+        let q_chain = generate_primes_vec(&[60; 10], n, &[]);
+        let p_chain = generate_primes_vec(&[60; 10], n, &q_chain);
+
+        let big_q = moduli_chain_to_biguint(&q_chain);
+        let big_p = moduli_chain_to_biguint(&p_chain);
+
+        // we will sample radnom polynomial x \in R_Q and calculate [\frac{P}{Q} \cdot x]_P
+
+        let modq_operators = q_chain
+            .iter()
+            .map(|qi| NativeModulusBackend::initialise(*qi))
+            .collect_vec();
+        let modp_operators = p_chain
+            .iter()
+            .map(|pi| NativeModulusBackend::initialise(*pi))
+            .collect_vec();
+
+        // precomputes
+        let neg_p_times_q_over_qi_inv_modqi = q_chain
+            .iter()
+            .map(|qi| {
+                // (q/q_i)^{-1}_q_i
+                let q_over_qi_inv_modqi = mod_inverse(((&big_q / qi) % qi).to_u64().unwrap(), *qi);
+                let neg_q_over_qi_inv_modqi_times_p = (qi - ((&big_p * q_over_qi_inv_modqi) % qi))
+                    .to_u64()
+                    .unwrap();
+
+                neg_q_over_qi_inv_modqi_times_p
+            })
+            .collect_vec();
+        let qi_inv_per_modpj = modp_operators
+            .iter()
+            .map(|modpj| {
+                q_chain
+                    .iter()
+                    .map(|qi| {
+                        modpj.normal_to_mont_space(mod_inverse(*qi % modpj.modulus, modpj.modulus))
+                    })
+                    .collect_vec()
+            })
+            .collect_vec();
+        let one_over_qi = q_chain.iter().map(|qi| 1f64 / *qi as f64).collect_vec();
+
+        let test = TestRng {};
+
+        let poly_q_in = test.random_ring_poly(&q_chain, n);
+        let mut poly_p_out = TestMatrix::zeros(p_chain.len(), n);
+
+        fast_convert_p_over_q(
+            &mut poly_p_out,
+            &poly_q_in,
+            &neg_p_times_q_over_qi_inv_modqi,
+            &qi_inv_per_modpj,
+            &one_over_qi,
+            &modq_operators,
+            &modp_operators,
+            q_chain.len(),
+            p_chain.len(),
+            n,
+        );
+
+        let poly_q_biguint = Vec::<BigUint>::try_convert_with_one_part(&poly_q_in, &q_chain);
+        let poly_p_biguint = Vec::<BigUint>::try_convert_with_one_part(&poly_p_out, &p_chain);
+
+        let poly_p_biguint_expected = poly_q_biguint
+            .iter()
+            .map(|xi| {
+                if xi >= &(&big_q >> 1) {
+                    &big_p - ((((&big_p * (&big_q - xi)) + (&big_q >> 1)) / &big_q) % &big_p)
+                } else {
+                    (((&big_p * xi) + (&big_q >> 1)) / &big_q) % &big_p
+                }
+            })
+            .collect_vec();
+
+        izip!(poly_p_biguint.iter(), poly_p_biguint_expected).for_each(|(p0, p1)| {
+            let bits = if p0 < &p1 {
+                (p1 - p0).bits()
+            } else {
+                (p0 - p1).bits()
+            };
+
+            assert!(bits == 0);
+        });
+    }
 
     #[test]
     fn switch_crt_basis_works() {
