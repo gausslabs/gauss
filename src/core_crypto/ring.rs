@@ -1,3 +1,5 @@
+use std::os::unix::raw::mode_t;
+
 use super::modulus::{BarrettBackend, MontgomeryBackend, MontgomeryScalar};
 use itertools::{izip, Itertools};
 
@@ -29,8 +31,8 @@ pub trait Matrix<T> {
 }
 
 /// Given input polnyomial x \in Q outputs $[\lceil \frac{P \cdot x}{Q} \rfloor]_P$
-/// 
-/// We implement "Modulus Switching between Arbitrary RNS Bases" presented in 
+///
+/// We implement "Modulus Switching between Arbitrary RNS Bases" presented in
 /// Appendix E of [2021/204](https://eprint.iacr.org/2021/204.pdf).
 pub fn fast_convert_p_over_q<
     'a,
@@ -154,6 +156,71 @@ pub fn switch_crt_basis<
     }
 }
 
+/// Simple scale and round procedure. Given input polynomial x \in R_Q it outputs scaled polynomial
+/// $\frac{t}{Q}\cdot x \in R_t$
+///
+/// We implement simple scaling procedure as outlined in [HPS] along with digit decomposition technique
+/// to reduce error accumulation due to precision loss when $max(log{q_i}) > 51$ bits as outlined in https://eprint.iacr.org/2021/204.pdf.
+///
+/// Usually $q_i < 2^{61}$. Thus it suffices to limit k = 2 and decomposition base \beta to $2^(max(log{q_i})/2)$.
+pub fn simple_scale_and_round<
+    'a,
+    MRef: MatrixRef<'a, u64>,
+    MMut: MatrixMut<'a, u64>,
+    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
+>(
+    t_out: &mut MMut,
+    q_in: &'a MRef,
+    q_over_qi_inv_modqi_times_t_over_qi_modt: &[MontgomeryScalar<u64>],
+    beta_times_q_over_qi_inv_modqi_times_t_over_qi_modt: &[MontgomeryScalar<u64>],
+    q_over_qi_inv_modqi_times_t_over_qi_fractional: &[f64],
+    beta_times_q_over_qi_inv_modqi_times_t_over_qi_fractional: &[f64],
+    log_beta: usize,
+    modt_operator: ModOps,
+    q_size: usize,
+    ring_size: usize,
+) {
+    for ri in 0..ring_size {
+        let mut fractional_lo = 0.5f64;
+        let mut fractional_hi = 0.5f64;
+        let mut qxis_lo_mont = Vec::with_capacity(q_size);
+        let mut qxis_hi_mont = Vec::with_capacity(q_size);
+        izip!(
+            q_in.get_col(ri),
+            q_over_qi_inv_modqi_times_t_over_qi_fractional.iter(),
+            beta_times_q_over_qi_inv_modqi_times_t_over_qi_fractional.iter()
+        )
+        .for_each(|(qxi, fr_lo, fr_hi)| {
+            let qxi_hi = *qxi >> log_beta;
+            let qxi_lo = *qxi - (qxi_hi << log_beta);
+
+            fractional_lo += (qxi_lo as f64 * fr_lo);
+            fractional_hi += (qxi_hi as f64 * fr_hi);
+
+            qxis_hi_mont.push(modt_operator.normal_to_mont_space(qxi_hi));
+            qxis_lo_mont.push(modt_operator.normal_to_mont_space(qxi_lo));
+        });
+
+        let out_lo_modt =
+            modt_operator.mont_fma(&qxis_lo_mont, q_over_qi_inv_modqi_times_t_over_qi_modt);
+        let out_hi_modt = modt_operator.mont_fma(
+            &qxis_hi_mont,
+            &beta_times_q_over_qi_inv_modqi_times_t_over_qi_modt,
+        );
+
+        let out_modt = modt_operator.mont_add(out_hi_modt, out_lo_modt);
+        let mut out_modt = modt_operator.mont_to_normal(out_modt);
+
+        // add fractional parts
+        out_modt = modt_operator
+            .add_mod_fast(out_modt, modt_operator.barrett_reduce(fractional_hi as u64));
+        out_modt = modt_operator
+            .add_mod_fast(out_modt, modt_operator.barrett_reduce(fractional_lo as u64));
+
+        t_out.set(0, ri, out_modt);
+    }
+}
+
 /// Given input $x \in R_{QP}$ calculates and returns $[\lceil \frac{t}{P} \cdot x \rfloor]_{Q}$
 ///
 /// We implement "Complex Scaling in CRT representation" of section 2.4 in [HPS](https://eprint.iacr.org/2018/117.pdf)
@@ -235,7 +302,7 @@ mod tests {
             random::RandomUniformDist,
         },
         utils::{
-            convert::{TryConvertFrom, TryConvertFromParts},
+            convert::TryConvertFromParts,
             mod_inverse, moduli_chain_to_biguint,
             test_utils::{TestMatrix, TestRng},
         },
@@ -425,6 +492,95 @@ mod tests {
                 (p0 - p1).bits()
             };
             assert!(bits == 0);
+        });
+    }
+
+    #[test]
+    fn simple_scale_and_round_works() {
+        let n = 1 << 4;
+        let t = 65537u64;
+        let q_chain = generate_primes_vec(&[60; 10], n, &[]);
+
+        let modt_operator = NativeModulusBackend::initialise(t);
+        let big_q = moduli_chain_to_biguint(&q_chain);
+
+        // we will scale and round polynomial x \in R_Q to \frac{t \cdot x}{Q} \in R_t
+
+        // precomputes
+        let log_beta = ((64 - q_chain.iter().max().unwrap().leading_zeros()) / 2) as usize;
+        let beta = 1u64 << log_beta;
+        let mut q_over_qi_inv_mod_qi_times_t_over_qi_modt_vec = vec![];
+        let mut beta_times_q_over_qi_inv_mod_qi_times_t_over_qi_modt_vec = vec![];
+        let mut q_over_qi_inv_mod_qi_times_t_over_qi_fractional_vec = vec![];
+        let mut beta_times_q_over_qi_inv_mod_qi_times_t_over_qi_fractional_vec = vec![];
+        q_chain.iter().for_each(|qi| {
+            let q_over_qi_inv_mod_qi = mod_inverse(((&big_q / qi) % qi).to_u64().unwrap(), *qi);
+
+            let q_over_qi_inv_mod_qi_times_t = BigUint::from(t) * q_over_qi_inv_mod_qi;
+
+            // v_i = ((q/q_i)^{-1}_q_i * t)
+            // rational part: v_i / q_i \mod{t}
+            q_over_qi_inv_mod_qi_times_t_over_qi_modt_vec.push(modt_operator.normal_to_mont_space(
+                ((&q_over_qi_inv_mod_qi_times_t / qi) % t).to_u64().unwrap(),
+            ));
+            // fractional part: (v_i % q_i) / q_i
+            q_over_qi_inv_mod_qi_times_t_over_qi_fractional_vec
+                .push(((&q_over_qi_inv_mod_qi_times_t % qi).to_f64().unwrap()) / (*qi as f64));
+
+            // \beta * v_i = (\beta * (q/q_i)^{-1}_q_i * t) / q_i \mod{t}
+            // rational part: \beta * v_i / q_i \mod{t}
+            beta_times_q_over_qi_inv_mod_qi_times_t_over_qi_modt_vec.push(
+                modt_operator.normal_to_mont_space(
+                    (((beta * &q_over_qi_inv_mod_qi_times_t) / qi) % t)
+                        .to_u64()
+                        .unwrap(),
+                ),
+            );
+            // fractional part: ((\beta * v_i) % q_i) / q_i
+            beta_times_q_over_qi_inv_mod_qi_times_t_over_qi_fractional_vec.push(
+                ((beta * &q_over_qi_inv_mod_qi_times_t) % qi)
+                    .to_f64()
+                    .unwrap()
+                    / (*qi as f64),
+            );
+        });
+
+        let test_rng = TestRng {};
+
+        let poly_q_in = test_rng.random_ring_poly(&q_chain, n);
+        let mut poly_t_out = TestMatrix::zeros(1, n);
+
+        simple_scale_and_round(
+            &mut poly_t_out,
+            &poly_q_in,
+            &q_over_qi_inv_mod_qi_times_t_over_qi_modt_vec,
+            &beta_times_q_over_qi_inv_mod_qi_times_t_over_qi_modt_vec,
+            &q_over_qi_inv_mod_qi_times_t_over_qi_fractional_vec,
+            &beta_times_q_over_qi_inv_mod_qi_times_t_over_qi_fractional_vec,
+            log_beta,
+            modt_operator,
+            q_chain.len(),
+            n,
+        );
+
+        let poly_q_biguint = Vec::<BigUint>::try_convert_with_one_part(&poly_q_in, &q_chain);
+        let poly_t_biguint = Vec::<BigUint>::try_convert_with_one_part(&poly_t_out, &vec![t]);
+
+        let poly_t_biguint_expected = poly_q_biguint.iter().map(|xi| {
+            if xi >= &(&big_q >> 1) {
+                t - ((((t * (&big_q - xi)) + (&big_q >> 1)) / &big_q) % t)
+            } else {
+                (((t * xi) + (&big_q >> 1)) / &big_q) % t
+            }
+        });
+
+        izip!(poly_t_biguint.iter(), poly_t_biguint_expected).for_each(|(p0, p1)| {
+            let bits = if p0 < &p1 {
+                (p1 - p0).bits()
+            } else {
+                (p0 - p1).bits()
+            };
+            assert!(bits <= 1);
         });
     }
 
