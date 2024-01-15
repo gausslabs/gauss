@@ -132,6 +132,7 @@ where
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::core_crypto::modulus::MontgomeryScalar;
     use crate::utils::test_utils::random_vec_in_fq;
@@ -270,7 +271,7 @@ mod tests {
                 sum + ((*a0 as u128 * *b0 as u128) % q as u128)
             });
 
-            assert!(c == (c_expected % (q as u128)) as u64)
+            assert_eq!(c, (c_expected % (q as u128)) as u64)
         }
     }
 }

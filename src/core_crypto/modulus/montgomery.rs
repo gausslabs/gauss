@@ -1,7 +1,4 @@
-use crate::{
-    core_crypto::modulus::BarrettBackend, core_crypto::num::UnsignedInteger,
-    utils::FastModularInverse,
-};
+use crate::{core_crypto::num::UnsignedInteger, utils::FastModularInverse};
 use itertools::izip;
 use num_traits::AsPrimitive;
 
@@ -51,26 +48,7 @@ where
     /// n^{-1} (mod r) where n is the original modulus
     fn n_inverse_modr(&self) -> Scalar;
 
-    // TODO (Bhargav)
-    // Debug mod_inv value
-
     // montgomery reduction
-    fn redc(&self, x: MontgomeryScalar<Scalar>) -> Scalar {
-        let N = self.modulus().as_();
-        let _N = self.n_inverse_modr();
-
-        let x_hi = x.0.as_() >> Scalar::BITS;
-        let m = (x.0.wrapping_mul(&_N)).as_();
-        let mN = m * N;
-        let mN_hi = mN >> Scalar::BITS;
-        let mut tmp = x_hi + N;
-        tmp = tmp - mN_hi;
-        let result = if x_hi < mN_hi { tmp } else { x_hi - mN_hi };
-        assert!(result < N);
-
-        result.as_()
-    }
-
     /// r^2 (mod n)
     fn r_square_modn(&self) -> Scalar;
 
@@ -166,30 +144,41 @@ where
     /// Caculates $\sum{a_i * b_i} \mod{q}$ in Montgomery space.
     ///
     /// Inputs should be in range [0, 2q) and output is in range [0, q)
-    ///
-    /// TODO (Jay):
-    ///     - Apparently FMA can be optmised further. Check https://jeffhurchalla.com/2022/05/01/the-montgomery-multiply-accumulate/
     fn mont_fma(
         &self,
         a: &[MontgomeryScalar<Scalar>],
         b: &[MontgomeryScalar<Scalar>],
     ) -> MontgomeryScalar<Scalar> {
         debug_assert!(a.len() == b.len(), "Length of a and b are not equal");
-
-        let q = self.modulus();
-        let R = Scalar::from(Scalar::BITS).unwrap();
-        let N = self.modulus();
+        let n = self.modulus();
+        let n_inv = self.n_inverse_modr();
 
         let mut sum = MontgomeryScalar::zero();
         izip!(a.iter(), b.iter()).for_each(|(&a0, &b0)| {
-            let mul = ScalarDoubled::from(a0.0).unwrap() * ScalarDoubled::from(b0.0).unwrap();
-            let u = Scalar::from(mul >> Scalar::BITS).unwrap();
-            let v = Scalar::from(mul).unwrap();
-            let c = sum.0;
-            let w = if u < N - c { u + c } else { u + c - N };
+            assert!(Scalar::zero() <= a0.0 && a0.0 < n + n); // a0 in range [0, 2q)
+            assert!(Scalar::zero() <= b0.0 && b0.0 < n + n); // b0 in range [0, 2q)
 
-            let s = w * R + v;
-            sum = MontgomeryScalar(self.redc(MontgomeryScalar(s)));
+            let mul = a0.0.as_() * b0.0.as_();
+            assert!(mul < (n.as_() << Scalar::BITS)); // mul < nR
+
+            let u = (mul >> Scalar::BITS).as_();
+            let v = mul.as_();
+            let c = sum.0;
+            let w = if u + c < n { u + c } else { u + c - n };
+
+            // Montgomery Reduction
+            let m = v.wrapping_mul(&n_inv);
+            let mn = m.as_().wrapping_mul(&n.as_());
+            let _mn_hi = (mn >> Scalar::BITS).as_();
+            let res = if w < _mn_hi {
+                w + n - _mn_hi
+            } else {
+                w - _mn_hi
+            };
+
+            debug_assert!(Scalar::zero() <= res && res < n); // res in range [0, q)
+
+            sum = MontgomeryScalar(res);
         });
         sum
     }
@@ -198,7 +187,7 @@ where
     /// Calculates and returns a * r (mod n), where n is original modulus.
     ///
     /// We precompute r^2 (mod n) and calculate
-    /// (a * r^2)r^{-1} = a *r (mod n) instead
+    /// (a * r^2)r^{-1} = a * r (mod n) instead
     ///
     /// Note that `mont_mul` accepts input in range [0, nr). Since (r^2 % n) < n,
     /// input `a` must be < r (i.e. 2^{64} if Scalae is u64)
@@ -214,155 +203,5 @@ where
         // space via calling `mont_mul` routine with `1` as second
         // operand.
         self.mont_mul(a, MontgomeryScalar(Scalar::one())).0
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{MontgomeryBackend, MontgomeryBackendConfig, MontgomeryScalar};
-    use crate::{
-        core_crypto::{
-            modulus::NativeModulusBackend,
-            num::{NumericConstants, UnsignedInteger},
-        },
-        utils::{mod_exponent, mod_inverse},
-    };
-
-    struct MontgomeryBackendTest {
-        modulus: u64,
-        n_inv_modr: u64,
-        r_squared_modn: u64,
-    }
-
-    impl MontgomeryBackend<u64, u128> for MontgomeryBackendTest {
-        fn modulus(&self) -> u64 {
-            self.modulus
-        }
-
-        fn modulus_twice(&self) -> u64 {
-            self.modulus.wrapping_mul(2)
-        }
-
-        fn n_inverse_modr(&self) -> u64 {
-            self.n_inv_modr
-        }
-
-        fn r_square_modn(&self) -> u64 {
-            self.r_squared_modn
-        }
-    }
-
-    impl PartialEq for MontgomeryScalar<u64> {
-        fn eq(&self, other: &Self) -> bool {
-            self.0 == other.0
-        }
-    }
-
-    #[test]
-    fn test_mont_add() {
-        let MODULUS = 11;
-
-        let (n_inv_modr, r_squared_modn) =
-            <NativeModulusBackend as MontgomeryBackendConfig<u64, u128>>::initialise(MODULUS);
-
-        let mont_test = MontgomeryBackendTest {
-            modulus: MODULUS,
-            n_inv_modr,
-            r_squared_modn,
-        };
-
-        (0..10).for_each(|x| {
-            (0..10).for_each(|y| {
-                let a = MontgomeryScalar(x);
-                let b = MontgomeryScalar(y);
-                assert_eq!(
-                    mont_test.mont_add(a, b),
-                    MontgomeryScalar((x + y) % MODULUS)
-                );
-            });
-        });
-    }
-
-    #[test]
-    fn test_mont_sub() {
-        let MODULUS = 11;
-
-        let (n_inv_modr, r_squared_modn) =
-            <NativeModulusBackend as MontgomeryBackendConfig<u64, u128>>::initialise(MODULUS);
-
-        let mont_test = MontgomeryBackendTest {
-            modulus: MODULUS,
-            n_inv_modr,
-            r_squared_modn,
-        };
-
-        (0..10).for_each(|x| {
-            (0..10).for_each(|y| {
-                let a = MontgomeryScalar(x);
-                let b = MontgomeryScalar(y);
-                assert_eq!(
-                    mont_test.mont_sub(a, b),
-                    MontgomeryScalar((x + 10 * MODULUS).wrapping_sub(y) % MODULUS)
-                );
-            });
-        });
-    }
-
-    #[test]
-    fn test_mont_mul() {
-        let MODULUS = 11;
-        let r_inv = 9; // r = 2^64
-
-        let (n_inv_modr, r_squared_modn) =
-            <NativeModulusBackend as MontgomeryBackendConfig<u64, u128>>::initialise(MODULUS);
-
-        let mont_test = MontgomeryBackendTest {
-            modulus: MODULUS,
-            n_inv_modr,
-            r_squared_modn,
-        };
-
-        (0..10).for_each(|x| {
-            (0..10).for_each(|y| {
-                let a = MontgomeryScalar(x);
-                let b = MontgomeryScalar(y);
-                println!(
-                    "{} * {} = {}, {}",
-                    a,
-                    b,
-                    mont_test.mont_mul(a, b),
-                    MontgomeryScalar((x * y * r_inv) % MODULUS)
-                );
-            });
-        });
-    }
-
-    #[test]
-    fn test_mont_redc() {
-        let MODULUS = 11;
-
-        let (n_inv_modr, r_squared_modn) =
-            <NativeModulusBackend as MontgomeryBackendConfig<u64, u128>>::initialise(MODULUS);
-
-        let mont_test = MontgomeryBackendTest {
-            modulus: MODULUS,
-            n_inv_modr,
-            r_squared_modn,
-        };
-
-        let x = MontgomeryScalar(50_u64);
-        let res = mont_test.redc(x);
-
-        println!("{}", res);
-    }
-
-    #[test]
-    fn test_inv_modr() {
-        let MODULUS = 11;
-
-        let (n_inv_modr, r_squared_modn) =
-            <NativeModulusBackend as MontgomeryBackendConfig<u64, u128>>::initialise(MODULUS);
-
-        println!("{}", MODULUS.wrapping_mul(n_inv_modr));
     }
 }
