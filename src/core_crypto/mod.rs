@@ -4,7 +4,4 @@ pub(crate) mod num;
 pub(crate) mod prime;
 pub(crate) mod random;
 pub(crate) mod ring;
-pub(crate) mod rings_trait;
 pub(crate) mod traits;
-
-
