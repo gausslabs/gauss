@@ -1,5 +1,3 @@
-use std::os::unix::raw::mode_t;
-
 use super::modulus::{BarrettBackend, MontgomeryBackend, MontgomeryScalar};
 use itertools::{izip, Itertools};
 
@@ -28,6 +26,21 @@ pub trait Matrix<T> {
     fn from_values(rows: usize, cols: usize, values: Vec<T>) -> Self;
 
     fn dimension(&self) -> (usize, usize);
+}
+
+pub fn add_mut<
+    'a,
+    MRef: MatrixRef<'a, u64>,
+    MMut: MatrixMut<'a, u64>,
+    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
+>() {
+}
+
+pub fn add<
+    'a,
+    MRef: MatrixRef<'a, u64>,
+    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
+>() {
 }
 
 /// Given input polnyomial x \in Q outputs $[\lceil \frac{P \cdot x}{Q}
