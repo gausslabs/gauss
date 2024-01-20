@@ -100,7 +100,8 @@ pub fn mod_inverse(a: u64, q: u64) -> u64 {
 }
 
 /// Extended GCD algorithm. The funciton calculates the GCD of a & b
-/// and two new variables x & y that satisy ax + by == gcd (i.e. Bezout's identity)
+/// and two new variables x & y that satisy ax + by == gcd (i.e. Bezout's
+/// identity)
 ///
 /// Refer to attached docs for implementation details
 pub fn extended_gcd(mut a: i64, mut b: i64) -> (i64, i64, i64) {

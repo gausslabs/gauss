@@ -4,7 +4,8 @@ use num_traits::AsPrimitive;
 
 /// Wrapper around `MontgomeryScalar`s.
 ///
-/// This is just to prevent cross-arithmatic between Scalars in Montgomery space and Scalars in Normal space.
+/// This is just to prevent cross-arithmatic between Scalars in Montgomery space
+/// and Scalars in Normal space.
 #[derive(Debug, Clone, Copy)]
 pub struct MontgomeryScalar<Scalar: UnsignedInteger>(pub(crate) Scalar);
 
@@ -88,7 +89,8 @@ where
     /// where `n` is the original modulus and `o \in [0,n)`
     ///
     /// In general, a*b should in range [0, qr). We assume q is smaller 2^{60}.
-    /// If r = 2^64, \log{qr} = 64 + 60 = 124. Therefore a and b can be range [0, 2q)
+    /// If r = 2^64, \log{qr} = 64 + 60 = 124. Therefore a and b can be range
+    /// [0, 2q)
     ///
     /// - [Reference 1](https://en.algorithmica.org/hpc/number-theory/montgomery/)
     /// - [Reference 2](https://jeffhurchalla.com/2022/04/29/optimized-montgomery-multiplication-with-smaller-modulus-sizes/)
@@ -189,8 +191,8 @@ where
     /// We precompute r^2 (mod n) and calculate
     /// (a * r^2)r^{-1} = a * r (mod n) instead
     ///
-    /// Note that `mont_mul` accepts input in range [0, nr). Since (r^2 % n) < n,
-    /// input `a` must be < r (i.e. 2^{64} if Scalae is u64)
+    /// Note that `mont_mul` accepts input in range [0, nr). Since (r^2 % n) <
+    /// n, input `a` must be < r (i.e. 2^{64} if Scalae is u64)
     fn normal_to_mont_space(&self, a: Scalar) -> MontgomeryScalar<Scalar> {
         self.mont_mul(MontgomeryScalar(a), MontgomeryScalar(self.r_square_modn()))
     }

@@ -8,7 +8,8 @@ use super::{
     prime::find_primitive_root,
 };
 
-/// Forward butterfly routine for Number theoretic transform. Given inputs `x < 4q` and `y < 4q` mutates x and y in place to equal x' and y' such that
+/// Forward butterfly routine for Number theoretic transform. Given inputs `x <
+/// 4q` and `y < 4q` mutates x and y in place to equal x' and y' such that
 /// x' = x + wy
 /// y' = x - wy
 /// where both x' and y' are in range [0, 4q)
@@ -37,9 +38,9 @@ pub unsafe fn forward_butterly(
     *x = *x + t;
 }
 
-/// Inverse butterfly routine of Inverse Number theoretic transform. Given inputs `x < 2q` and `y < 2q` mutates x and y to equal x' and y' such that
-/// x' = x + y
-/// y' = w(x - y)
+/// Inverse butterfly routine of Inverse Number theoretic transform. Given
+/// inputs `x < 2q` and `y < 2q` mutates x and y to equal x' and y' such that x'
+/// = x + y y' = w(x - y)
 /// where x' and y' in range [0, 2q)
 ///
 /// We implement Algorithm 3 of [FASTER ARITHMETIC FOR NUMBER-THEORETIC TRANSFORMS](https://arxiv.org/pdf/1205.2926.pdf)
@@ -66,8 +67,8 @@ pub unsafe fn inverse_butterfly(
     *x = x_dash;
 }
 
-/// Calculates forward number theoretic transform of vector `a`. We implement forward Cooley-tukey
-/// based forward NTT as outlined in Algorithm 1 of https://eprint.iacr.org/2016/504.pdf.
+/// Calculates forward number theoretic transform of vector `a`. We implement
+/// forward Cooley-tukey based forward NTT as outlined in Algorithm 1 of https://eprint.iacr.org/2016/504.pdf.
 ///
 /// Outputs NTT(a) where each element is in range [0,2q)
 pub fn ntt(a: &mut [u64], psi: &[u64], psi_shoup: &[u64], q: u64, q_twice: u64) {

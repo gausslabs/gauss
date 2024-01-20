@@ -10,7 +10,8 @@ where
     /// Precomputes modulus specific barrett constant.
     /// We set \alpha = n + 3. Thus \mu = 2^{2*n+3}/modulus
     fn precompute_alpha_and_barrett_constant(modulus: Scalar) -> (usize, Scalar) {
-        //TODO (Jay): Move barrett pre-compute in its own trait (like MontgomeryBackendConfig)
+        //TODO (Jay): Move barrett pre-compute in its own trait (like
+        // MontgomeryBackendConfig)
         let modulus_bits = Scalar::BITS - modulus.leading_zeros();
 
         let mu = (1u128 << (modulus_bits * 2 + 3)) / <Scalar as AsPrimitive<u128>>::as_(modulus);
@@ -74,11 +75,13 @@ where
     ///
     /// We implement the generalized barrett reduction
     /// formula described as Algorithm 2 of the this [paper](https://homes.esat.kuleuven.be/~fvercaut/papers/bar_mont.pdf).
-    /// Assuming \log(ab) < 2*n + 3, \gamma < n + 2. Since for correctness \alpha should be \ge (\gamma + 1) and \beta <= -2,
-    /// we set \alpha as (n + 3) and \beta as -2.
+    /// Assuming \log(ab) < 2*n + 3, \gamma < n + 2. Since for correctness
+    /// \alpha should be \ge (\gamma + 1) and \beta <= -2, we set \alpha as
+    /// (n + 3) and \beta as -2.
     ///
     /// * [Implementation reference](https://github.com/openfheorg/openfhe-development/blob/c48c41cf7893feb94f09c7d95284a36145ec0d5e/src/core/include/math/hal/intnat/ubintnat.h#L1417)
-    /// * Note 1: It is possible to do the same without using `ScalarDoubled` (i.e. without u128s in case of u64s).
+    /// * Note 1: It is possible to do the same without using `ScalarDoubled`
+    ///   (i.e. without u128s in case of u64s).
     fn mul_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
         debug_assert!(
             a < (self.modulus() * (Scalar::one() + Scalar::one() + Scalar::one() + Scalar::one())),

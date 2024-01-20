@@ -30,7 +30,8 @@ pub trait Matrix<T> {
     fn dimension(&self) -> (usize, usize);
 }
 
-/// Given input polnyomial x \in Q outputs $[\lceil \frac{P \cdot x}{Q} \rfloor]_P$
+/// Given input polnyomial x \in Q outputs $[\lceil \frac{P \cdot x}{Q}
+/// \rfloor]_P$
 ///
 /// We implement "Modulus Switching between Arbitrary RNS Bases" presented in
 /// Appendix E of [2021/204](https://eprint.iacr.org/2021/204.pdf).
@@ -156,13 +157,14 @@ pub fn switch_crt_basis<
     }
 }
 
-/// Simple scale and round procedure. Given input polynomial x \in R_Q it outputs scaled polynomial
-/// $\frac{t}{Q}\cdot x \in R_t$
+/// Simple scale and round procedure. Given input polynomial x \in R_Q it
+/// outputs scaled polynomial $\frac{t}{Q}\cdot x \in R_t$
 ///
-/// We implement simple scaling procedure as outlined in [HPS] along with digit decomposition technique
-/// to reduce error accumulation due to precision loss when $max(log{q_i}) > 51$ bits as outlined in https://eprint.iacr.org/2021/204.pdf.
+/// We implement simple scaling procedure as outlined in [HPS] along with digit
+/// decomposition technique to reduce error accumulation due to precision loss when $max(log{q_i}) > 51$ bits as outlined in https://eprint.iacr.org/2021/204.pdf.
 ///
-/// Usually $q_i < 2^{61}$. Thus it suffices to limit k = 2 and decomposition base \beta to $2^(max(log{q_i})/2)$.
+/// Usually $q_i < 2^{61}$. Thus it suffices to limit k = 2 and decomposition
+/// base \beta to $2^(max(log{q_i})/2)$.
 pub fn simple_scale_and_round<
     'a,
     MRef: MatrixRef<'a, u64>,
@@ -221,7 +223,8 @@ pub fn simple_scale_and_round<
     }
 }
 
-/// Given input $x \in R_{QP}$ calculates and returns $[\lceil \frac{t}{P} \cdot x \rfloor]_{Q}$
+/// Given input $x \in R_{QP}$ calculates and returns $[\lceil \frac{t}{P} \cdot
+/// x \rfloor]_{Q}$
 ///
 /// We implement "Complex Scaling in CRT representation" of section 2.4 in [HPS](https://eprint.iacr.org/2018/117.pdf)
 ///
@@ -250,7 +253,8 @@ pub fn scale_and_round<
         let mut sum_fractional = 0.5f64;
         p_in.get_col(ri).enumerate().for_each(|(j, px_j)| {
             // px_j * \theta_j
-            // TODO (Jay): This will likely result in low precision. A better will be to split fractional into fractional high and fractional low
+            // TODO (Jay): This will likely result in low precision. A better will be to
+            // split fractional into fractional high and fractional low
             sum_fractional += (*px_j as f64) * qp_over_pj_inv_modpj_times_tq_fractional[j];
         });
         let sum_fractional = sum_fractional as u64;
@@ -260,9 +264,10 @@ pub fn scale_and_round<
 
             // convert px_j to montgomery space of \mod{q_i}
             //
-            // One thing to note here is \log{pxj} can be much greater than \log{q_i}. For example,
-            // when p_j is 60 bits and q_i is 30 bits. Mapping to montgomery space in $q_j$ should still work
-            // because the function accepts input in range [0, r) where r = 2^{64}.
+            // One thing to note here is \log{pxj} can be much greater than \log{q_i}. For
+            // example, when p_j is 60 bits and q_i is 30 bits. Mapping to
+            // montgomery space in $q_j$ should still work because the function
+            // accepts input in range [0, r) where r = 2^{64}.
             let pxjs_in_mont = p_in
                 .get_col(ri)
                 .map(|x| modqi_op.normal_to_mont_space(*x))
@@ -319,7 +324,8 @@ mod tests {
         let big_q = moduli_chain_to_biguint(&q_chain);
         let big_p = moduli_chain_to_biguint(&p_chain);
 
-        // we will sample radnom polynomial x \in R_Q and calculate [\frac{P}{Q} \cdot x]_P
+        // we will sample radnom polynomial x \in R_Q and calculate [\frac{P}{Q} \cdot
+        // x]_P
 
         let modq_operators = q_chain
             .iter()

@@ -6,7 +6,8 @@ use crate::utils::mod_exponent;
 //     fn is_prime(candidate: T) -> bool;
 // }
 
-// TODO (Jay): this is only a workaround. Add a propoer way to perform primality tests.
+// TODO (Jay): this is only a workaround. Add a propoer way to perform primality
+// tests.
 fn is_probably_prime(candidate: u64) -> bool {
     num_bigint_dig::prime::probably_prime(&num_bigint_dig::BigUint::from(candidate), 0)
 }
@@ -78,7 +79,8 @@ pub(crate) fn find_primitive_root<R: RngCore>(q: u64, n: u64, rng: &mut R) -> Op
         // \omega = \omega^t. \omega is now n^th root of unity
         omega = mod_exponent(omega, t, q);
 
-        // We restrict n to be power of 2. Thus checking whether \omega is primitive n^th root of unity is a simple check: \omega^{n/2} != 1
+        // We restrict n to be power of 2. Thus checking whether \omega is primitive
+        // n^th root of unity is a simple check: \omega^{n/2} != 1
         if mod_exponent(omega, n >> 1, q) == 1 {
             continue;
         } else {
