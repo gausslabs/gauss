@@ -8,6 +8,7 @@ use crate::{
         matrix::{Matrix, MatrixMut, RowMut},
         modulus::ModulusVecBackend,
         ntt::Ntt,
+        num::UnsignedInteger,
         ring::{add_mut, fast_convert_p_over_q, mul_lazy_mut, scale_and_round, switch_crt_basis},
     },
     parameters::{
@@ -15,11 +16,15 @@ use crate::{
     },
 };
 
-pub fn ciphertext_add<C: BfvCiphertext, P: PolyModulusOpParameters>(
-    c0: &C,
+pub fn ciphertext_add<
+    Scalar: UnsignedInteger,
+    C: BfvCiphertext<Scalar = Scalar>,
+    P: PolyModulusOpParameters<Scalar = Scalar>,
+>(
+    c0: &mut C,
     c1: &C,
     parameters: &P,
-) -> C {
+) {
     debug_assert_eq!(
         c0.level(),
         c1.level(),
@@ -27,13 +32,17 @@ pub fn ciphertext_add<C: BfvCiphertext, P: PolyModulusOpParameters>(
         c0.level(),
         c1.level()
     );
+    debug_assert!(
+        c0.representation() == c1.representation(),
+        "Ciphertext c0 and c1 representations are not equal"
+    );
 
-    // let mod_ops = parameters.mod_vec_ops_at_level(c0.level());
-    // izip!(c0.c_basisq().iter(), c1.c_basisq().iter()).map(|(p0s, p1s)| {
-    //     // TODO
-    // });
-
-    todo!()
+    let modq_ops = parameters.modq_vec_ops_at_level(c0.level());
+    izip!(c0.c_partq_mut().iter_mut(), c1.c_partq().iter(),).for_each(|(p0, p1)| {
+        izip!(p0.iter_rows_mut(), p1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
+            modqi.add_mod_vec(r0.as_mut(), r1.as_ref());
+        });
+    });
 }
 
 pub fn ciphertext_mul<

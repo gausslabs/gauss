@@ -26,6 +26,12 @@ pub trait PolyModulusOpParameters: Parameters {
     fn basisp_dimension_at_level(&self, level: usize) -> (usize, usize);
 }
 
+// Encrytion parameters
+
+// Levelling Down Parameters
+
+// SIMD encoding parameters
+
 pub trait BfvMultiplicationAlgorithm2Parameters: Parameters<Scalar = u64> {
     type ModOp: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>;
 
