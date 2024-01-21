@@ -1,2 +1,2 @@
-pub(crate) mod core_crypto;
+pub mod core_crypto;
 pub(crate) mod utils;
