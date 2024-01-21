@@ -1,5 +1,5 @@
 use crate::core_crypto::{
-    matrix::{Matrix, MatrixMut},
+    matrix::{Matrix, MatrixMut, Row, RowMut},
     num::UnsignedInteger,
 };
 
@@ -11,17 +11,20 @@ pub enum Representation {
 
 pub trait Ciphertext {
     type Scalar: UnsignedInteger;
-    type Poly: Matrix<MatElement = Self::Scalar>;
+    type Row: Row<Element = Self::Scalar> + RowMut<Element = Self::Scalar>;
+    type Poly: Matrix<MatElement = Self::Scalar>
+        + MatrixMut<MatElement = Self::Scalar, R = Self::Row>;
 
     fn representation(&self) -> Representation;
 }
 
 pub trait BfvCiphertext: Ciphertext {
     fn degree(&self) -> usize;
-    fn c_basisq(&self) -> &[Self::Poly];
+    fn c_partq(&self) -> &[Self::Poly];
+    fn c_partq_mut(&self) -> &mut [Self::Poly];
     fn level(&self) -> usize;
 }
 
 pub trait ExtendedBfvCiphertext: BfvCiphertext {
-    fn c_basisp(&self) -> &[Self::Poly];
+    fn c_partp(&self) -> &[Self::Poly];
 }

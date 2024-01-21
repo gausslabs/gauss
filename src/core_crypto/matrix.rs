@@ -13,9 +13,15 @@ pub trait Matrix: AsRef<[Self::R]> {
     fn get_row(&self, row_idx: usize) -> &Self::R {
         &self.as_ref()[row_idx]
     }
+
     fn get_col_iter(&self, column_idx: usize) -> impl Iterator<Item = &Self::MatElement> {
         self.as_ref().iter().map(move |r| &r.as_ref()[column_idx])
     }
+
+    fn iter_rows(&self) -> impl Iterator<Item = &Self::R> {
+        self.as_ref().iter().map(move |r| r)
+    }
+
     fn get_element(&self, row_idx: usize, column_idx: usize) -> &Self::MatElement {
         &self.as_ref()[row_idx].as_ref()[column_idx]
     }
@@ -33,6 +39,7 @@ where
     fn set(&mut self, row_idx: usize, column_idx: usize, val: <Self as Matrix>::MatElement) {
         self.as_mut()[row_idx].as_mut()[column_idx] = val;
     }
+
     fn get_col_iter_mut(
         &mut self,
         column_idx: usize,
@@ -43,6 +50,11 @@ where
             .map(move |r| r.as_mut().get_mut(column_idx).unwrap());
         res
     }
+
+    fn iter_rows_mut(&mut self) -> impl Iterator<Item = &mut Self::R> {
+        self.as_mut().iter_mut().map(move |r| r)
+    }
+
     fn get_element_mut(
         &mut self,
         row_idx: usize,

@@ -22,6 +22,13 @@ where
     fn add_mod_vec(&self, a: &mut [Scalar], b: &[Scalar]);
     fn sub_mod_vec(&self, a: &mut [Scalar], b: &[Scalar]);
     fn mul_mod_vec(&self, a: &mut [Scalar], b: &[Scalar]);
+
+    /// Inplace modular multiplication a=a*b. Input a nad b are in range [0, 2q)
+    /// and output a is in range [0, 2q]
+    fn mul_lazy_mod_vec(&self, a: &mut [Scalar], b: &[Scalar]);
+    /// Inplace modular addition a=a+b. Input a nad b are in range [0, 2q) and
+    /// output a is in range [0, 2q]
+    fn add_lazy_mod_vec(&self, a: &mut [Scalar], b: &[Scalar]);
 }
 
 pub trait ModulusRandomVecInDistGenerator<'a, Scalar, R>

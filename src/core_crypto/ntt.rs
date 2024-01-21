@@ -5,8 +5,30 @@ use crate::{core_crypto::modulus::ShoupRepresentationFq, utils::mod_inverse};
 
 use super::{
     modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend},
+    num::UnsignedInteger,
     prime::find_primitive_root,
 };
+
+pub trait NttConfig {
+    type Scalar: UnsignedInteger;
+
+    fn init(modulus: Self::Scalar, ring_size: usize) -> Self;
+}
+
+pub trait Ntt: NttConfig {
+    /// Forward NTT of input `a` with input in range [0, 2q). Output is in range
+    /// [0, q)
+    fn forward(&self, a: &mut [Self::Scalar]);
+    /// Backward NTT of input `a` with input in range [0, 2q]. Output is in
+    /// range [0, q)
+    fn backward(&self, a: &mut [Self::Scalar]);
+    /// Forward NTT of input `a` with input in range [0, 2q). Output is in range
+    /// [0, 2q)
+    fn forward_lazy(&self, a: &mut [Self::Scalar]);
+    /// Backward NTT of input `a` with input in range [0, 2q]. Output is in
+    /// range [0, 2q)
+    fn backward_lazy(&self, a: &mut [Self::Scalar]);
+}
 
 /// Forward butterfly routine for Number theoretic transform. Given inputs `x <
 /// 4q` and `y < 4q` mutates x and y in place to equal x' and y' such that
@@ -67,11 +89,12 @@ pub unsafe fn inverse_butterfly(
     *x = x_dash;
 }
 
-/// Calculates forward number theoretic transform of vector `a`. We implement
-/// forward Cooley-tukey based forward NTT as outlined in Algorithm 1 of https://eprint.iacr.org/2016/504.pdf.
+/// Number theoretic transform of vector `a` with each
+/// element in range [0, 2q).Outputs NTT(a) where each element is in range
+/// [0,2q)
 ///
-/// Outputs NTT(a) where each element is in range [0,2q)
-pub fn ntt(a: &mut [u64], psi: &[u64], psi_shoup: &[u64], q: u64, q_twice: u64) {
+/// We implement Cooley-tukey based forward NTT as given in Algorithm 1 of https://eprint.iacr.org/2016/504.pdf.
+pub fn ntt_lazy(a: &mut [u64], psi: &[u64], psi_shoup: &[u64], q: u64, q_twice: u64) {
     debug_assert!(a.len() == psi.len());
 
     let n = a.len();
@@ -106,7 +129,11 @@ pub fn ntt(a: &mut [u64], psi: &[u64], psi_shoup: &[u64], q: u64, q_twice: u64) 
     });
 }
 
-pub fn ntt_inv(
+/// Inverse number theoretic transform of input vector `a` with each element in
+/// range [0, 2q). Outputs vector INTT(a) with each element in range [0, 2q)
+///
+/// We implement backward number theorectic transform using GS algorithm as given in Algorithm 2 of https://eprint.iacr.org/2016/504.pdf
+pub fn ntt_inv_lazy(
     a: &mut [u64],
     psi_inv: &[u64],
     psi_inv_shoup: &[u64],
@@ -154,12 +181,14 @@ pub struct NativeNTTBackend {
     psi_inv_powers_bo_shoup: Box<[u64]>,
 }
 
-impl NativeNTTBackend {
-    pub fn new(q: u64, n: u64) -> NativeNTTBackend {
+impl NttConfig for NativeNTTBackend {
+    type Scalar = u64;
+
+    fn init(q: Self::Scalar, n: usize) -> Self {
         // \psi = 2n^{th} primitive root of unity in F_q
         let mut rng = thread_rng();
-        let psi =
-            find_primitive_root(q, n * 2, &mut rng).expect("Unable to find 2n^th root of unity");
+        let psi = find_primitive_root(q, (n * 2) as u64, &mut rng)
+            .expect("Unable to find 2n^th root of unity");
         let psi_inv = mod_inverse(psi, q);
 
         let modulus = NativeModulusBackend::initialise(q);
@@ -199,12 +228,12 @@ impl NativeNTTBackend {
             .collect_vec();
 
         // n^{-1} \mod{q}
-        let n_inv = mod_inverse(n, q);
+        let n_inv = mod_inverse(n as u64, q);
 
         NativeNTTBackend {
             q,
             q_twice: 2 * q,
-            n,
+            n: n as u64,
             n_inv,
             psi_powers_bo: psi_powers_bo.into_boxed_slice(),
             psi_inv_powers_bo: psi_inv_powers_bo.into_boxed_slice(),
@@ -212,9 +241,36 @@ impl NativeNTTBackend {
             psi_inv_powers_bo_shoup: psi_inv_powers_bo_shoup.into_boxed_slice(),
         }
     }
+}
 
-    pub fn ntt(&self, a: &mut [u64]) {
-        ntt(
+impl Ntt for NativeNTTBackend {
+    fn forward(&self, a: &mut [Self::Scalar]) {
+        ntt_lazy(
+            a,
+            &self.psi_powers_bo,
+            &self.psi_powers_bo_shoup,
+            self.q,
+            self.q_twice,
+        );
+        // TODO (Jay) reduce output to range [0, q)
+        todo!()
+    }
+
+    fn backward(&self, a: &mut [Self::Scalar]) {
+        ntt_inv_lazy(
+            a,
+            &self.psi_inv_powers_bo,
+            &self.psi_inv_powers_bo_shoup,
+            self.n_inv,
+            self.q,
+            self.q_twice,
+        );
+        // TODO (Jay) reduce output to range [0, q)
+        todo!()
+    }
+
+    fn forward_lazy(&self, a: &mut [Self::Scalar]) {
+        ntt_lazy(
             a,
             &self.psi_powers_bo,
             &self.psi_powers_bo_shoup,
@@ -223,8 +279,8 @@ impl NativeNTTBackend {
         );
     }
 
-    pub fn ntt_inv(&self, a: &mut [u64]) {
-        ntt_inv(
+    fn backward_lazy(&self, a: &mut [Self::Scalar]) {
+        ntt_inv_lazy(
             a,
             &self.psi_inv_powers_bo,
             &self.psi_inv_powers_bo_shoup,
@@ -241,20 +297,20 @@ mod tests {
     use crate::utils::test_utils::random_vec_in_fq;
 
     const Q_60_BITS: u64 = 1152921504606748673;
-    const N: u64 = 1 << 4;
+    const N: usize = 1 << 4;
 
     const K: usize = 128;
 
     #[test]
     fn native_ntt_backend_works() {
-        let ntt_backend = NativeNTTBackend::new(Q_60_BITS, N);
+        let ntt_backend = NativeNTTBackend::init(Q_60_BITS, N);
         for _ in 0..K {
-            let mut a = random_vec_in_fq(N as usize, Q_60_BITS);
+            let mut a = random_vec_in_fq(N, Q_60_BITS);
             let a_clone = a.clone();
 
-            ntt_backend.ntt(&mut a);
+            ntt_backend.forward(&mut a);
             assert_ne!(a, a_clone);
-            ntt_backend.ntt_inv(&mut a);
+            ntt_backend.forward_lazy(&mut a);
             assert_eq!(a, a_clone);
         }
     }

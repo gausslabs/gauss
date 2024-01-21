@@ -74,9 +74,23 @@ impl ModulusVecBackend<u64> for NativeModulusBackend {
         })
     }
 
+    // TODO(Jay): Which is faster? (1) convert scalars to mont space, multiply, and
+    // then map them back to normal spce or (2) Use barrett?
     fn mul_mod_vec(&self, a: &mut [u64], b: &[u64]) {
         izip!(a.iter_mut(), b.iter()).for_each(|(a0, b0)| {
             *a0 = self.mul_mod_fast(*a0, *b0);
+        })
+    }
+
+    fn mul_lazy_mod_vec(&self, a: &mut [u64], b: &[u64]) {
+        izip!(a.iter_mut(), b.iter()).for_each(|(a0, b0)| {
+            *a0 = self.mul_mod_fast(*a0, *b0);
+        })
+    }
+
+    fn add_lazy_mod_vec(&self, a: &mut [u64], b: &[u64]) {
+        izip!(a.iter_mut(), b.iter()).for_each(|(a0, b0)| {
+            *a0 = self.add_mod_fast(*a0, *b0);
         })
     }
 }

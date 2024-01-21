@@ -1,50 +1,49 @@
+use crate::{ciphertext::Representation, core_crypto::ntt};
+
 use super::{
-    matrix::{Matrix, MatrixMut, RowMut},
-    modulus::{BarrettBackend, MontgomeryBackend, MontgomeryScalar},
+    matrix::{Matrix, MatrixMut, Row, RowMut},
+    modulus::{BarrettBackend, ModulusVecBackend, MontgomeryBackend, MontgomeryScalar},
+    ntt::Ntt,
+    num::UnsignedInteger,
 };
 use itertools::{izip, Itertools};
 
-// pub trait MatrixRef<'a, T: 'a>: Matrix<T> {
-//     type IteratorRef: Iterator<Item = &'a T>;
+pub fn mul_lazy_mut<
+    T: UnsignedInteger,
+    MRef: Matrix<MatElement = T>,
+    MMut: MatrixMut<MatElement = T>,
+    ModOps: ModulusVecBackend<T>,
+>(
+    q0: &mut MMut,
+    q1: &MRef,
+    modq_ops: &[ModOps],
+) where
+    <MMut as Matrix>::R: RowMut,
+{
+    izip!(q0.iter_rows_mut(), q1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
+        modqi.mul_lazy_mod_vec(r0.as_mut(), r1.as_ref());
+    });
+}
 
-//     fn get_col(&'a self, index: usize) -> Self::IteratorRef;
-//     fn get_row(&'a self, index: usize) -> Self::IteratorRef;
+pub fn add_mut<
+    MRef: Matrix<MatElement = u64>,
+    MMut: MatrixMut<MatElement = u64>,
+    ModOps: ModulusVecBackend<u64>,
+>(
+    q0: &mut MMut,
+    q1: &MRef,
+    modq_ops: &[ModOps],
+) where
+    <MMut as Matrix>::R: RowMut,
+{
+    todo!()
+}
 
-//     fn get(&'a self, row: usize, col: usize) -> &T;
-// }
-
-// pub trait MatrixMut<'a, T: 'a> {
-//     type IteratorMutRef: Iterator<Item = &'a mut T>;
-
-//     fn get_col_mut(&'a mut self, index: usize) -> Self::IteratorMutRef;
-//     fn get_row_mut(&'a mut self, index: usize) -> Self::IteratorMutRef;
-
-//     fn get_mut(&'a mut self, row: usize, col: usize) -> &T;
-
-//     fn set(&mut self, row: usize, col: usize, value: T);
-// }
-
-// pub trait Matrix<T> {
-//     fn zeros(rows: usize, cols: usize) -> Self;
-//     fn from_values(rows: usize, cols: usize, values: Vec<T>) -> Self;
-
-//     fn dimension(&self) -> (usize, usize);
-// }
-
-// pub fn add_mut<
-//     'a,
-//     MRef: MatrixRef<'a, u64>,
-//     MMut: MatrixMut<'a, u64>,
-//     ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
-// >() {
-// }
-
-// pub fn add<
-//     'a,
-//     MRef: MatrixRef<'a, u64>,
-//     ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
-// >() {
-// }
+pub fn add<
+    MRef: Matrix<MatElement = u64>,
+    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
+>() {
+}
 
 /// Given input polnyomial x \in Q outputs $[\lceil \frac{P \cdot x}{Q}
 /// \rfloor]_P$

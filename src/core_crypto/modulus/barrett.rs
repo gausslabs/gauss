@@ -34,7 +34,7 @@ where
     fn add_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
         debug_assert!(
             a < self.modulus(),
-            "Input {a} > (modulus){}",
+            "Input {a} >= (modulus){}",
             self.modulus()
         );
         debug_assert!(
@@ -46,6 +46,30 @@ where
         let mut c = a + b;
         if c >= self.modulus() {
             c -= self.modulus();
+        }
+        c
+    }
+
+    /// Lazy modular addition of a,b \in [0, 2q).
+    ///
+    /// Output is in range [0, 2q)
+    fn add_lazy_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
+        debug_assert!(
+            a < self.modulus(),
+            "Input {a} >= (2*modulus){}",
+            self.modulus() * (Scalar::one() + Scalar::one())
+        );
+        debug_assert!(
+            b < self.modulus(),
+            "Input {b} >= (2*modulus){}",
+            self.modulus() * (Scalar::one() + Scalar::one())
+        );
+
+        let twice_modulus = self.modulus() * (Scalar::one() + Scalar::one());
+
+        let mut c = a + b;
+        if c >= twice_modulus {
+            c -= twice_modulus;
         }
         c
     }
@@ -71,7 +95,7 @@ where
 
     /// Barrett modular multiplication with pre-compute constant \mu
     ///
-    /// Both a and b are < q.
+    /// Both a and b are < 2q.
     ///
     /// We implement the generalized barrett reduction
     /// formula described as Algorithm 2 of the this [paper](https://homes.esat.kuleuven.be/~fvercaut/papers/bar_mont.pdf).
