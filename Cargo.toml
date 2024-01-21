@@ -17,9 +17,9 @@ ndarray = "0.15.6"
 num-bigint = { version = "0.4.4", features = ["rand"] }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 
-# [[bench]]
-# name = "modular_arithmetic"
-# harness = false
+[[bench]]
+name = "modular_arithmetic"
+harness = false
 
 [[bench]]
 name = "ntt"

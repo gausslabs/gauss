@@ -8,12 +8,12 @@ use gauss::core_crypto::modulus::{
 };
 
 const PRIMES: [u64; 6] = [
-    1021,                // 10 bit prime
-    1048361,             // 20 bit prime
-    1073741101,          // 30 bit prime
-    1099511626321,       // 40 bit prime
-    1125899906842201,    // 50 bit prime
-    1152921504606845161, // 60 bit prime
+    1021,                // 10-bit
+    1048361,             // 20-bit
+    1073741101,          // 30-bit
+    1099511626321,       // 40-bit
+    1125899906842201,    // 50-bit
+    1152921504606845161, // 60-bit
 ];
 
 const K: usize = 16;
@@ -71,9 +71,8 @@ fn criterion_modular_arithmetic(c: &mut Criterion) {
     let mut group = c.benchmark_group("Montgomery Modular Arithmetic Benchmarks");
     let mut rng = thread_rng();
 
-    PRIMES.iter().enumerate().for_each(|(_idx, p)| {
+    PRIMES.iter().for_each(|p| {
         let modulus_backend = <NativeModulusBackend as ModulusBackendConfig<u64>>::initialise(*p);
-        let idx = _idx + 1; // for display purposes
 
         let a = rng.gen::<u64>() % p;
         let b = rng.gen::<u64>() % p;
@@ -81,12 +80,12 @@ fn criterion_modular_arithmetic(c: &mut Criterion) {
         let b_mont = modulus_backend.normal_to_mont_space(b);
 
         // Addition
-        let id = BenchmarkId::new("Barrett Addition", idx);
+        let id = BenchmarkId::new("Barrett Addition", p);
         group.bench_with_input(id, &(a, b), |bx, (a, b)| {
             bx.iter(|| bench_barrett_add(black_box(&modulus_backend), black_box(a), black_box(b)))
         });
 
-        let id = BenchmarkId::new("Montgomery Addition", idx);
+        let id = BenchmarkId::new("Montgomery Addition", p);
         group.bench_with_input(id, &(a_mont, b_mont), |bx, (a_mont, b_mont)| {
             bx.iter(|| {
                 bench_mont_add(
@@ -98,12 +97,12 @@ fn criterion_modular_arithmetic(c: &mut Criterion) {
         });
 
         // Subtraction
-        let id = BenchmarkId::new("Barrett Subtraction", idx);
+        let id = BenchmarkId::new("Barrett Subtraction", p);
         group.bench_with_input(id, &(a, b), |bx, (a, b)| {
             bx.iter(|| bench_barrett_sub(black_box(&modulus_backend), black_box(a), black_box(b)))
         });
 
-        let id = BenchmarkId::new("Montgomery Subtraction", idx);
+        let id = BenchmarkId::new("Montgomery Subtraction", p);
         group.bench_with_input(id, &(a_mont, b_mont), |bx, (a_mont, b_mont)| {
             bx.iter(|| {
                 bench_mont_sub(
@@ -115,12 +114,12 @@ fn criterion_modular_arithmetic(c: &mut Criterion) {
         });
 
         // Multiplication
-        let id = BenchmarkId::new("Barrett Multiplication", idx);
+        let id = BenchmarkId::new("Barrett Multiplication", p);
         group.bench_with_input(id, &(a, b), |bx, (a, b)| {
             bx.iter(|| bench_barrett_mul(black_box(&modulus_backend), black_box(a), black_box(b)))
         });
 
-        let id = BenchmarkId::new("Montgomery Multiplication", idx);
+        let id = BenchmarkId::new("Montgomery Multiplication", p);
         group.bench_with_input(id, &(a_mont, b_mont), |bx, (a_mont, b_mont)| {
             bx.iter(|| {
                 bench_mont_mul(
