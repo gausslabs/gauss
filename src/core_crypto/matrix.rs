@@ -1,8 +1,14 @@
-use aligned_vec::AVec;
+use aligned_vec::{avec, AVec};
+
+use crate::core_crypto::num::UnsignedInteger;
 
 pub trait Matrix: AsRef<[Self::R]> {
     type MatElement;
     type R: Row<Element = Self::MatElement>;
+
+    fn dimension(&self) -> (usize, usize);
+
+    fn zeros(row: usize, col: usize) -> Self;
 
     fn get_row(&self, row_idx: usize) -> &Self::R {
         &self.as_ref()[row_idx]
@@ -48,12 +54,11 @@ where
 
 ///This part is borrowed from zama fhe's containter type without modification
 ///https://github.com/zama-ai/tfhe-rs/blob/main/tfhe/src/core_crypto/commons/traits/container.rs
-///
 pub trait Row: AsRef<[Self::Element]> {
     type Element;
 }
-
 pub trait RowMut: Row + AsMut<[<Self as Row>::Element]> {}
+
 impl<T> Row for AVec<T> {
     type Element = T;
 }
@@ -96,29 +101,46 @@ impl<T> IntoRowOwned for aligned_vec::ABox<[T]> {
     }
 }
 
-///
-///
-///
-
-type InnerMat<T> = AVec<AVec<T>>;
-impl<T> Matrix for InnerMat<T> {
+impl<T> Matrix for AVec<AVec<T>>
+where
+    T: UnsignedInteger,
+{
     type MatElement = T;
     type R = AVec<T>;
+
+    fn zeros(row: usize, col: usize) -> Self {
+        avec![avec![T::zero(); col]; row]
+    }
+
+    fn dimension(&self) -> (usize, usize) {
+        (self.len(), self[0].len())
+    }
 }
 
-impl<T> MatrixMut for InnerMat<T> {}
+impl<T> MatrixMut for AVec<AVec<T>> where T: UnsignedInteger {}
 
-impl<T> Matrix for Vec<Vec<T>> {
+impl<T> Matrix for Vec<Vec<T>>
+where
+    T: UnsignedInteger,
+{
     type MatElement = T;
     type R = Vec<T>;
+
+    fn zeros(row: usize, col: usize) -> Self {
+        vec![vec![T::zero(); col]; row]
+    }
+
+    fn dimension(&self) -> (usize, usize) {
+        (self.len(), self[0].len())
+    }
 }
-impl<T> MatrixMut for Vec<Vec<T>> {}
+impl<T> MatrixMut for Vec<Vec<T>> where T: UnsignedInteger {}
 
 #[cfg(test)]
 mod test {
 
     use super::*;
-    use crate::core_crypto::traits::matrix::MatrixMut;
+    use crate::core_crypto::matrix::MatrixMut;
     use aligned_vec::avec;
 
     #[test]

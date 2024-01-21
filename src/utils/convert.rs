@@ -1,8 +1,10 @@
+use std::{fmt::Debug, ops::Rem};
+
 use itertools::{izip, Itertools};
-use num_bigint::BigUint;
+use num_bigint::{BigUint, ToBigUint};
 use num_traits::{ToPrimitive, Zero};
 
-use crate::core_crypto::ring::{Matrix, MatrixRef};
+use crate::core_crypto::{matrix::Matrix, num::UnsignedInteger};
 
 use super::{mod_inverse, moduli_chain_to_biguint};
 
@@ -24,28 +26,28 @@ pub trait TryConvertFromParts<T> {
     ) -> Self;
 }
 
-impl<'a, M> TryConvertFrom<&'a [BigUint]> for M
-where
-    M: Matrix<u64>,
-{
+impl<'a> TryConvertFrom<&'a [BigUint]> for Vec<Vec<u64>> {
     type Parameters = &'a Vec<u64>;
     fn try_convert_from(value: &'a [BigUint], parameters: Self::Parameters) -> Self {
-        let values = parameters
+        parameters
             .iter()
-            .flat_map(|qi| value.iter().map(|big_x| (big_x % *qi).to_u64().unwrap()))
-            .collect_vec();
-
-        Matrix::from_values(parameters.len(), value.len(), values)
+            .map(|qi| {
+                value
+                    .iter()
+                    .map(|big_x| u64::try_from(big_x % *qi).unwrap())
+                    .collect_vec()
+            })
+            .collect_vec()
     }
 }
 
 impl<'a, M> TryConvertFromParts<&'a M> for Vec<BigUint>
 where
-    M: MatrixRef<'a, u64>,
+    M: Matrix<MatElement = u64>,
 {
-    type Parameters = &'a Vec<u64>;
+    type Parameters = &'a [u64];
 
-    fn try_convert_with_one_part(value: &'a M, parameters: Self::Parameters) -> Self {
+    fn try_convert_with_one_part(value: &M, parameters: Self::Parameters) -> Self {
         let big_q = moduli_chain_to_biguint(parameters);
 
         // q/q_i
@@ -65,7 +67,7 @@ where
         let mut out_biguint_coeffs = vec![];
         for ri in 0..ring_size {
             let mut x = BigUint::zero();
-            value.get_col(ri).enumerate().for_each(|(i, xi)| {
+            value.get_col_iter(ri).enumerate().for_each(|(i, xi)| {
                 x += xi * &q_over_qi_vec[i] * &q_over_qi_inv_modqi_vec[i];
             });
             out_biguint_coeffs.push(x % &big_q);
@@ -115,14 +117,20 @@ where
             let mut x = BigUint::zero();
 
             // q part
-            value_part0.get_col(ri).enumerate().for_each(|(i, xi)| {
-                x += xi * &qp_over_qi_vec[i] * &qp_over_qi_inv_modqi_vec[i];
-            });
+            value_part0
+                .get_col_iter(ri)
+                .enumerate()
+                .for_each(|(i, xi)| {
+                    x += xi * &qp_over_qi_vec[i] * &qp_over_qi_inv_modqi_vec[i];
+                });
 
             // p part
-            value_part1.get_col(ri).enumerate().for_each(|(i, xi)| {
-                x += xi * &qp_over_pj_vec[i] * &qp_over_pj_inv_modpj_vec[i];
-            });
+            value_part1
+                .get_col_iter(ri)
+                .enumerate()
+                .for_each(|(i, xi)| {
+                    x += xi * &qp_over_pj_vec[i] * &qp_over_pj_inv_modpj_vec[i];
+                });
 
             out_biguint_coeffs.push(x % &big_qp);
         }
@@ -136,17 +144,11 @@ mod tests {
     use itertools::Itertools;
     use num_bigint::{BigUint, RandBigInt};
     use num_traits::One;
-    use rand::{thread_rng, Rng};
-
-    use crate::{
-        core_crypto::{
-            prime::generate_primes_vec,
-            ring::{self, Matrix},
-        },
-        utils::test_utils::TestMatrix,
-    };
+    use rand::thread_rng;
 
     use super::{TryConvertFrom, TryConvertFromParts};
+
+    use crate::core_crypto::prime::generate_primes_vec;
 
     #[test]
     fn convert_from_and_to_biguint_for_u64_moduli_chain_works() {
@@ -165,7 +167,7 @@ mod tests {
             .collect_vec();
 
         // decompose biguint poly into q_i's
-        let poly_decomposed = TestMatrix::try_convert_from(&poly_big, &q_chain);
+        let poly_decomposed = Vec::<Vec<u64>>::try_convert_from(&poly_big, &q_chain);
 
         // recompose decomposed poly into biguint
         let poly_big_back = Vec::<BigUint>::try_convert_with_one_part(&poly_decomposed, &q_chain);
@@ -195,8 +197,8 @@ mod tests {
             .collect_vec();
 
         // decompose biguint poly into q_i's
-        let poly_decomposed_part0 = TestMatrix::try_convert_from(&poly_big, &q_chain);
-        let poly_decomposed_part1 = TestMatrix::try_convert_from(&poly_big, &p_chain);
+        let poly_decomposed_part0 = Vec::<Vec<u64>>::try_convert_from(&poly_big, &q_chain);
+        let poly_decomposed_part1 = Vec::<Vec<u64>>::try_convert_from(&poly_big, &p_chain);
 
         // recompose decomposed poly into biguint
         let poly_big_back = Vec::<BigUint>::try_convert_with_two_parts(

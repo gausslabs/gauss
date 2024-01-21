@@ -1,47 +1,50 @@
-use super::modulus::{BarrettBackend, MontgomeryBackend, MontgomeryScalar};
+use super::{
+    matrix::{Matrix, MatrixMut, RowMut},
+    modulus::{BarrettBackend, MontgomeryBackend, MontgomeryScalar},
+};
 use itertools::{izip, Itertools};
 
-pub trait MatrixRef<'a, T: 'a>: Matrix<T> {
-    type IteratorRef: Iterator<Item = &'a T>;
+// pub trait MatrixRef<'a, T: 'a>: Matrix<T> {
+//     type IteratorRef: Iterator<Item = &'a T>;
 
-    fn get_col(&'a self, index: usize) -> Self::IteratorRef;
-    fn get_row(&'a self, index: usize) -> Self::IteratorRef;
+//     fn get_col(&'a self, index: usize) -> Self::IteratorRef;
+//     fn get_row(&'a self, index: usize) -> Self::IteratorRef;
 
-    fn get(&'a self, row: usize, col: usize) -> &T;
-}
+//     fn get(&'a self, row: usize, col: usize) -> &T;
+// }
 
-pub trait MatrixMut<'a, T: 'a> {
-    type IteratorMutRef: Iterator<Item = &'a mut T>;
+// pub trait MatrixMut<'a, T: 'a> {
+//     type IteratorMutRef: Iterator<Item = &'a mut T>;
 
-    fn get_col_mut(&'a mut self, index: usize) -> Self::IteratorMutRef;
-    fn get_row_mut(&'a mut self, index: usize) -> Self::IteratorMutRef;
+//     fn get_col_mut(&'a mut self, index: usize) -> Self::IteratorMutRef;
+//     fn get_row_mut(&'a mut self, index: usize) -> Self::IteratorMutRef;
 
-    fn get_mut(&'a mut self, row: usize, col: usize) -> &T;
+//     fn get_mut(&'a mut self, row: usize, col: usize) -> &T;
 
-    fn set(&mut self, row: usize, col: usize, value: T);
-}
+//     fn set(&mut self, row: usize, col: usize, value: T);
+// }
 
-pub trait Matrix<T> {
-    fn zeros(rows: usize, cols: usize) -> Self;
-    fn from_values(rows: usize, cols: usize, values: Vec<T>) -> Self;
+// pub trait Matrix<T> {
+//     fn zeros(rows: usize, cols: usize) -> Self;
+//     fn from_values(rows: usize, cols: usize, values: Vec<T>) -> Self;
 
-    fn dimension(&self) -> (usize, usize);
-}
+//     fn dimension(&self) -> (usize, usize);
+// }
 
-pub fn add_mut<
-    'a,
-    MRef: MatrixRef<'a, u64>,
-    MMut: MatrixMut<'a, u64>,
-    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
->() {
-}
+// pub fn add_mut<
+//     'a,
+//     MRef: MatrixRef<'a, u64>,
+//     MMut: MatrixMut<'a, u64>,
+//     ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
+// >() {
+// }
 
-pub fn add<
-    'a,
-    MRef: MatrixRef<'a, u64>,
-    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
->() {
-}
+// pub fn add<
+//     'a,
+//     MRef: MatrixRef<'a, u64>,
+//     ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
+// >() {
+// }
 
 /// Given input polnyomial x \in Q outputs $[\lceil \frac{P \cdot x}{Q}
 /// \rfloor]_P$
@@ -49,13 +52,12 @@ pub fn add<
 /// We implement "Modulus Switching between Arbitrary RNS Bases" presented in
 /// Appendix E of [2021/204](https://eprint.iacr.org/2021/204.pdf).
 pub fn fast_convert_p_over_q<
-    'a,
-    MRef: MatrixRef<'a, u64>,
-    MMut: MatrixMut<'a, u64>,
+    MRef: Matrix<MatElement = u64>,
+    MMut: MatrixMut<MatElement = u64>,
     ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
 >(
     p_out: &mut MMut,
-    q_in: &'a MRef,
+    q_in: &MRef,
     neg_p_times_q_over_qi_inv_modqi: &[u64],
     qi_inv_per_modpj: &[Vec<MontgomeryScalar<u64>>],
     one_over_qi: &[f64],
@@ -64,12 +66,14 @@ pub fn fast_convert_p_over_q<
     q_size: usize,
     p_size: usize,
     ring_size: usize,
-) {
+) where
+    <MMut as Matrix>::R: RowMut,
+{
     for ri in 0..ring_size {
         let mut mu = 0.5f64;
         // qxi_values = for each i: qxi * [-p(q/qi)^{-1}]_q_i \mod{q_i}
         let qxi_values = izip!(
-            q_in.get_col(ri),
+            q_in.get_col_iter(ri),
             neg_p_times_q_over_qi_inv_modqi.iter(),
             one_over_qi.iter(),
             modq_operators.iter()
@@ -108,13 +112,12 @@ pub fn fast_convert_p_over_q<
 
 /// Switches basis of a polynomial in Q basis to P basis
 pub fn switch_crt_basis<
-    'a,
-    MRef: MatrixRef<'a, u64>,
-    MMut: MatrixMut<'a, u64>,
+    MRef: Matrix<MatElement = u64>,
+    MMut: MatrixMut<MatElement = u64>,
     ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
 >(
     p_out: &mut MMut,
-    q_in: &'a MRef,
+    q_in: &MRef,
     q_over_qi_inv_modqi: &[u64],
     q_over_qi_per_modpj: &[Vec<MontgomeryScalar<u64>>],
     mu_times_q_per_modpj: &[Vec<MontgomeryScalar<u64>>],
@@ -124,12 +127,14 @@ pub fn switch_crt_basis<
     q_size: usize,
     p_size: usize,
     ring_size: usize,
-) {
+) where
+    <MMut as Matrix>::R: RowMut,
+{
     for ri in 0..ring_size {
         let mut mu = 0.5f64;
         // q_values = for each i: qx_i * {q/q_i}^{-1}_q_i \mod{q_i}
         let q_values = izip!(
-            q_in.get_col(ri),
+            q_in.get_col_iter(ri),
             q_over_qi_inv_modqi.iter(),
             modq_operators.iter(),
             one_over_qi.iter()
@@ -179,13 +184,12 @@ pub fn switch_crt_basis<
 /// Usually $q_i < 2^{61}$. Thus it suffices to limit k = 2 and decomposition
 /// base \beta to $2^(max(log{q_i})/2)$.
 pub fn simple_scale_and_round<
-    'a,
-    MRef: MatrixRef<'a, u64>,
-    MMut: MatrixMut<'a, u64>,
+    MRef: Matrix<MatElement = u64>,
+    MMut: MatrixMut<MatElement = u64>,
     ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
 >(
     t_out: &mut MMut,
-    q_in: &'a MRef,
+    q_in: &MRef,
     q_over_qi_inv_modqi_times_t_over_qi_modt: &[MontgomeryScalar<u64>],
     beta_times_q_over_qi_inv_modqi_times_t_over_qi_modt: &[MontgomeryScalar<u64>],
     q_over_qi_inv_modqi_times_t_over_qi_fractional: &[f64],
@@ -194,14 +198,16 @@ pub fn simple_scale_and_round<
     modt_operator: ModOps,
     q_size: usize,
     ring_size: usize,
-) {
+) where
+    <MMut as Matrix>::R: RowMut,
+{
     for ri in 0..ring_size {
         let mut fractional_lo = 0.5f64;
         let mut fractional_hi = 0.5f64;
         let mut qxis_lo_mont = Vec::with_capacity(q_size);
         let mut qxis_hi_mont = Vec::with_capacity(q_size);
         izip!(
-            q_in.get_col(ri),
+            q_in.get_col_iter(ri),
             q_over_qi_inv_modqi_times_t_over_qi_fractional.iter(),
             beta_times_q_over_qi_inv_modqi_times_t_over_qi_fractional.iter()
         )
@@ -243,14 +249,13 @@ pub fn simple_scale_and_round<
 ///
 /// TODO (Jay): describe params
 pub fn scale_and_round<
-    'a,
-    MRef: MatrixRef<'a, u64>,
-    MMut: MatrixMut<'a, u64>,
+    MRef: Matrix<MatElement = u64>,
+    MMut: MatrixMut<MatElement = u64>,
     ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
 >(
     q_out: &mut MMut,
-    q_in: &'a MRef,
-    p_in: &'a MRef,
+    q_in: &MRef,
+    p_in: &MRef,
     modq_operators: &[ModOps],
     modp_operators: &[ModOps],
     qp_over_pj_inv_modpj_times_tq_per_modqi_rational: &[Vec<MontgomeryScalar<u64>>],
@@ -260,11 +265,13 @@ pub fn scale_and_round<
     p_size: usize,
     qp_size: usize,
     ring_size: usize,
-) {
+) where
+    <MMut as Matrix>::R: RowMut,
+{
     for ri in 0..ring_size {
         // summation for fractional can be done without modular reduction per `qi`
         let mut sum_fractional = 0.5f64;
-        p_in.get_col(ri).enumerate().for_each(|(j, px_j)| {
+        p_in.get_col_iter(ri).enumerate().for_each(|(j, px_j)| {
             // px_j * \theta_j
             // TODO (Jay): This will likely result in low precision. A better will be to
             // split fractional into fractional high and fractional low
@@ -282,7 +289,7 @@ pub fn scale_and_round<
             // montgomery space in $q_j$ should still work because the function
             // accepts input in range [0, r) where r = 2^{64}.
             let pxjs_in_mont = p_in
-                .get_col(ri)
+                .get_col_iter(ri)
                 .map(|x| modqi_op.normal_to_mont_space(*x))
                 .collect_vec();
 
@@ -293,7 +300,7 @@ pub fn scale_and_round<
             );
 
             // qx_i * [(qp/q_i)^{-1}]_{q_i} * (t * q)/q_i \mod qi
-            let mut qx_i = modqi_op.normal_to_mont_space(*q_in.get(i, ri));
+            let mut qx_i = modqi_op.normal_to_mont_space(*q_in.get_element(i, ri));
             qx_i = modqi_op.mont_mul(qx_i, qp_over_qi_inv_modqi_times_tq_over_qi_modqi[i]);
             sum_rational = modqi_op.mont_add(sum_rational, qx_i);
 
@@ -320,9 +327,7 @@ mod tests {
             random::RandomUniformDist,
         },
         utils::{
-            convert::TryConvertFromParts,
-            mod_inverse, moduli_chain_to_biguint,
-            test_utils::{TestMatrix, TestRng},
+            convert::TryConvertFromParts, mod_inverse, moduli_chain_to_biguint, test_utils::TestRng,
         },
     };
 
@@ -378,7 +383,7 @@ mod tests {
         let test = TestRng {};
 
         let poly_q_in = test.random_ring_poly(&q_chain, n);
-        let mut poly_p_out = TestMatrix::zeros(p_chain.len(), n);
+        let mut poly_p_out = Vec::<Vec<u64>>::zeros(p_chain.len(), n);
 
         fast_convert_p_over_q(
             &mut poly_p_out,
@@ -474,7 +479,7 @@ mod tests {
         let test_rng = TestRng {};
 
         let poly_q_in = test_rng.random_ring_poly(&q_chain, n);
-        let mut poly_p_out = TestMatrix::zeros(p_chain.len(), n);
+        let mut poly_p_out = Vec::<Vec<u64>>::zeros(p_chain.len(), n);
 
         switch_crt_basis(
             &mut poly_p_out,
@@ -539,6 +544,7 @@ mod tests {
 
             // v_i = ((q/q_i)^{-1}_q_i * t)
             // rational part: v_i / q_i \mod{t}
+
             q_over_qi_inv_mod_qi_times_t_over_qi_modt_vec.push(modt_operator.normal_to_mont_space(
                 ((&q_over_qi_inv_mod_qi_times_t / qi) % t).to_u64().unwrap(),
             ));
@@ -556,6 +562,7 @@ mod tests {
                 ),
             );
             // fractional part: ((\beta * v_i) % q_i) / q_i
+
             beta_times_q_over_qi_inv_mod_qi_times_t_over_qi_fractional_vec.push(
                 ((beta * &q_over_qi_inv_mod_qi_times_t) % qi)
                     .to_f64()
@@ -567,7 +574,7 @@ mod tests {
         let test_rng = TestRng {};
 
         let poly_q_in = test_rng.random_ring_poly(&q_chain, n);
-        let mut poly_t_out = TestMatrix::zeros(1, n);
+        let mut poly_t_out = Vec::<Vec<u64>>::zeros(1, n);
 
         simple_scale_and_round(
             &mut poly_t_out,
@@ -682,7 +689,7 @@ mod tests {
         let poly0_q_part = test_rng.random_ring_poly(&q_chain, n);
         let poly0_p_part = test_rng.random_ring_poly(&p_chain, n);
 
-        let mut poly_out = TestMatrix::zeros(q_chain.len(), n);
+        let mut poly_out = Vec::<Vec<u64>>::zeros(q_chain.len(), n);
 
         scale_and_round(
             &mut poly_out,
