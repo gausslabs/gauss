@@ -245,13 +245,13 @@ mod tests {
             assert_eq!(c, c_expected);
 
             // montgomery addition
-            let c_mont = modulus_backend.mont_add(a_mont, b_mont);
+            let c_mont = modulus_backend.add_mod_fast(a_mont, b_mont);
             let c = modulus_backend.mont_to_normal(c_mont);
             let c_expected = (a + b) % p;
             assert_eq!(c, c_expected);
 
             // montgomery subtraction
-            let c_mont = modulus_backend.mont_sub(a_mont, b_mont);
+            let c_mont = modulus_backend.sub_mod_fast(a_mont, b_mont);
             let c = modulus_backend.mont_to_normal(c_mont);
             let c_expected = if a > b { a - b } else { p - (b - a) };
             assert_eq!(c, c_expected);

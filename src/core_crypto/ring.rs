@@ -116,7 +116,9 @@ pub fn fast_convert_p_over_q<
 pub fn switch_crt_basis<
     MRef: Matrix<MatElement = u64>,
     MMut: MatrixMut<MatElement = u64>,
-    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
+    ModOps: MontgomeryBackend<u64, u128>
+        + BarrettBackend<u64, u128>
+        + ModulusArithmeticBackend<MontgomeryScalar<u64>>,
 >(
     p_out: &mut MMut,
     q_in: &MRef,
@@ -169,7 +171,7 @@ pub fn switch_crt_basis<
             let mut out_in_pj = modpj.mont_fma(&qxi_times_q_hat_inv_modpj, &q_over_qi_per_modpj[j]);
 
             // subtract overflow: \mu Q
-            out_in_pj = modpj.mont_sub(out_in_pj, mu_times_q_per_modpj[j][mu]);
+            out_in_pj = modpj.sub_mod_fast(out_in_pj, mu_times_q_per_modpj[j][mu]);
             let input_modpj = modpj.mont_to_normal(out_in_pj);
 
             p_out.set(j, ri, input_modpj);
@@ -188,7 +190,10 @@ pub fn switch_crt_basis<
 pub fn simple_scale_and_round<
     MRef: Matrix<MatElement = u64>,
     MMut: MatrixMut<MatElement = u64>,
-    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128> + ModulusArithmeticBackend<u64>,
+    ModOps: MontgomeryBackend<u64, u128>
+        + BarrettBackend<u64, u128>
+        + ModulusArithmeticBackend<u64>
+        + ModulusArithmeticBackend<MontgomeryScalar<u64>>,
 >(
     t_out: &mut MMut,
     q_in: &MRef,
@@ -231,7 +236,7 @@ pub fn simple_scale_and_round<
             &beta_times_q_over_qi_inv_modqi_times_t_over_qi_modt,
         );
 
-        let out_modt = modt_operator.mont_add(out_hi_modt, out_lo_modt);
+        let out_modt = modt_operator.add_mod_fast(out_hi_modt, out_lo_modt);
         let mut out_modt = modt_operator.mont_to_normal(out_modt);
 
         // add fractional parts
@@ -253,7 +258,10 @@ pub fn simple_scale_and_round<
 pub fn scale_and_round<
     MRef: Matrix<MatElement = u64>,
     MMut: MatrixMut<MatElement = u64>,
-    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128> + ModulusArithmeticBackend<u64>,
+    ModOps: MontgomeryBackend<u64, u128>
+        + BarrettBackend<u64, u128>
+        + ModulusArithmeticBackend<u64>
+        + ModulusArithmeticBackend<MontgomeryScalar<u64>>,
 >(
     q_out: &mut MMut,
     q_in: &MRef,
@@ -304,7 +312,7 @@ pub fn scale_and_round<
             // qx_i * [(qp/q_i)^{-1}]_{q_i} * (t * q)/q_i \mod qi
             let mut qx_i = modqi_op.normal_to_mont_space(*q_in.get_element(i, ri));
             qx_i = modqi_op.mont_mul(qx_i, qp_over_qi_inv_modqi_times_tq_over_qi_modqi[i]);
-            sum_rational = modqi_op.mont_add(sum_rational, qx_i);
+            sum_rational = modqi_op.add_mod_fast(sum_rational, qx_i);
 
             let mut sum_rational = modqi_op.mont_to_normal(sum_rational);
 

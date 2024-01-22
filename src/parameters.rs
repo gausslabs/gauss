@@ -38,7 +38,8 @@ pub trait PolyModulusOpParameters: Parameters {
 pub trait BfvMultiplicationAlgorithm2Parameters: Parameters<Scalar = u64> {
     type ModOp: MontgomeryBackend<u64, u128>
         + BarrettBackend<u64, u128>
-        + ModulusArithmeticBackend<u64>;
+        + ModulusArithmeticBackend<u64>
+        + ModulusArithmeticBackend<MontgomeryScalar<u64>>;
 
     fn modq_operators_at_level(&self, level: usize) -> &[Self::ModOp];
     fn modp_operators_at_level(&self, level: usize) -> &[Self::ModOp];

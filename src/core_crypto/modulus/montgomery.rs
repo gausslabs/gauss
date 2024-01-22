@@ -67,61 +67,6 @@ where
     /// r^2 (mod n)
     fn r_square_modn(&self) -> Scalar;
 
-    fn mont_sub(
-        &self,
-        a: MontgomeryScalar<Scalar>,
-        b: MontgomeryScalar<Scalar>,
-    ) -> MontgomeryScalar<Scalar> {
-        debug_assert!(a.0 < self.modulus(), "Input {a} >= {}", self.modulus());
-        debug_assert!(b.0 < self.modulus(), "Input {b} >= {}", self.modulus());
-
-        let o = if a.0 >= b.0 {
-            a.0 - b.0
-        } else {
-            (a.0 + self.modulus()) - b.0
-        };
-
-        MontgomeryScalar(o)
-    }
-
-    fn mont_add(
-        &self,
-        a: MontgomeryScalar<Scalar>,
-        b: MontgomeryScalar<Scalar>,
-    ) -> MontgomeryScalar<Scalar> {
-        debug_assert!(a.0 < self.modulus(), "Input {a} >= {}", self.modulus());
-        debug_assert!(b.0 < self.modulus(), "Input {b} >= {}", self.modulus());
-
-        let mut c = a.0 + b.0;
-        if c >= self.modulus() {
-            c -= self.modulus();
-        }
-        MontgomeryScalar(c)
-    }
-
-    fn mont_add_lazy(
-        &self,
-        a: MontgomeryScalar<Scalar>,
-        b: MontgomeryScalar<Scalar>,
-    ) -> MontgomeryScalar<Scalar> {
-        debug_assert!(
-            a.0 < self.twice_modulus(),
-            "Input {a} >= {}",
-            self.twice_modulus()
-        );
-        debug_assert!(
-            b.0 < self.twice_modulus(),
-            "Input {b} >= {}",
-            self.twice_modulus()
-        );
-
-        let mut c = a.0 + b.0;
-        if c >= self.twice_modulus() {
-            c -= self.twice_modulus();
-        }
-        MontgomeryScalar(c)
-    }
-
     /// For a & b in Montgomery space, outputs `o = ab*r^{-1} (mod n)`,
     /// where `n` is the original modulus and `o \in [0,n)`
     ///

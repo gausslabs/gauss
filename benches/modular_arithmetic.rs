@@ -38,7 +38,7 @@ fn bench_mont_add(
     a: &MontgomeryScalar<u64>,
     b: &MontgomeryScalar<u64>,
 ) {
-    modulus_backend.mont_add(*a, *b);
+    modulus_backend.add_mod_fast(*a, *b);
 }
 
 fn bench_mont_sub(
@@ -46,7 +46,7 @@ fn bench_mont_sub(
     a: &MontgomeryScalar<u64>,
     b: &MontgomeryScalar<u64>,
 ) {
-    modulus_backend.mont_sub(*a, *b);
+    modulus_backend.sub_mod_fast(*a, *b);
 }
 
 fn bench_mont_mul(
