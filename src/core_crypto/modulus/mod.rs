@@ -1,8 +1,8 @@
 use super::num::UnsignedInteger;
 
-mod barrett;
-mod montgomery;
-mod native_backend;
+pub mod barrett;
+pub mod montgomery;
+pub mod native_backend;
 mod shoup;
 
 pub use barrett::BarrettBackend;
