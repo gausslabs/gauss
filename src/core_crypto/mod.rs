@@ -1,7 +1,7 @@
-pub(crate) mod matrix;
-pub(crate) mod modulus;
-pub(crate) mod ntt;
-pub(crate) mod num;
+pub mod matrix;
+pub mod modulus;
+pub mod ntt;
+pub mod num;
 pub mod prime;
-pub(crate) mod random;
-pub(crate) mod ring;
+pub mod random;
+pub mod ring;
