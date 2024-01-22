@@ -29,12 +29,6 @@ pub trait PolyModulusOpParameters: Parameters {
     fn basisp_dimension_at_level(&self, level: usize) -> (usize, usize);
 }
 
-// Encrytion parameters
-
-// Levelling Down Parameters
-
-// SIMD encoding parameters
-
 pub trait BfvMultiplicationAlgorithm2Parameters: Parameters<Scalar = u64> {
     type ModOp: MontgomeryBackend<u64, u128>
         + BarrettBackend<u64, u128>
@@ -76,3 +70,20 @@ pub trait BfvMultiplicationAlgorithm2Parameters: Parameters<Scalar = u64> {
         level: usize,
     ) -> &[MontgomeryScalar<u64>];
 }
+
+// Encrytion parameters
+pub trait BfvEncryptionParameters: Parameters {
+    type ModOp: ModulusVecBackend<Self::Scalar>;
+
+    fn modq_operators_at_level(&self, level: usize) -> &[Self::ModOp];
+    fn modt_operator(&self) -> Self::ModOp;
+    fn ring_size(&self) -> usize;
+    fn q_moduli_chain_at_level(&self, level: usize) -> &[Self::Scalar];
+
+    fn q_modt(&self) -> Self::Scalar;
+    fn t_inv_modqi_at_level(&self, level: usize) -> &[Self::Scalar];
+}
+
+// Levelling Down Parameters
+
+// SIMD encoding parameters

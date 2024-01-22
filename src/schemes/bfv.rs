@@ -1,6 +1,7 @@
 use std::task::Poll;
 
 use itertools::izip;
+use rand::{CryptoRng, RngCore};
 
 use crate::{
     ciphertext::{BfvCiphertext, Ciphertext, Representation},
@@ -9,12 +10,117 @@ use crate::{
         modulus::ModulusVecBackend,
         ntt::Ntt,
         num::UnsignedInteger,
-        ring::{add_mut, fast_convert_p_over_q, mul_lazy_mut, scale_and_round, switch_crt_basis},
+        random::{RandomGaussianDist, RandomUniformDist},
+        ring::{
+            self, add_mut, fast_convert_p_over_q, mul_lazy_mut, neg_mut, scale_and_round,
+            switch_crt_basis,
+        },
     },
+    keys::{EncodedMessage, SecretKey},
     parameters::{
-        BfvMultiplicationAlgorithm2Parameters, PolyModulusOpParameters, PolyNttOpParameters,
+        BfvEncryptionParameters, BfvMultiplicationAlgorithm2Parameters, PolyModulusOpParameters,
+        PolyNttOpParameters,
     },
+    utils::convert::{TryConvertFrom, TryConvertFromParts},
 };
+
+fn foward_lazy<
+    Scalar: UnsignedInteger,
+    Poly: MatrixMut<MatElement = Scalar>,
+    N: Ntt<Scalar = Scalar>,
+>(
+    p: &mut Poly,
+    ntt_ops: &[N],
+) where
+    <Poly as Matrix>::R: RowMut,
+{
+    izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.forward_lazy(r.as_mut()));
+}
+
+fn backward<
+    Scalar: UnsignedInteger,
+    Poly: MatrixMut<MatElement = Scalar>,
+    N: Ntt<Scalar = Scalar>,
+>(
+    p: &mut Poly,
+    ntt_ops: &[N],
+) where
+    <Poly as Matrix>::R: RowMut,
+{
+    izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.backward(r.as_mut()));
+}
+
+pub fn secret_key_encryption<
+    'a,
+    Scalar: 'a + UnsignedInteger,
+    Poly: MatrixMut<MatElement = Scalar>,
+    S: SecretKey<Scalar = i32>,
+    E: EncodedMessage<Scalar = Scalar>,
+    P: BfvEncryptionParameters<Scalar = Scalar> + PolyNttOpParameters,
+    C: BfvCiphertext<Poly = Poly>,
+    R: RandomUniformDist<Scalar = Scalar, Poly = Poly>
+        + RandomGaussianDist<Scalar = Scalar, Poly = Poly>
+        + CryptoRng,
+>(
+    secret: &'a S,
+    message: &E,
+    parameters: &'a P,
+    rng: &R,
+    level: usize,
+) -> C
+where
+    Poly: TryConvertFrom<&'a [i32], Parameters = &'a [Scalar]>,
+    <Poly as Matrix>::R: RowMut,
+{
+    let q_size = level + 1;
+    let ring_size = parameters.ring_size();
+
+    // m(X)
+    let mut encoded_m = Vec::<Scalar>::with_capacity(ring_size);
+    encoded_m.copy_from_slice(message.value());
+
+    // [Qm(X)]_t
+    let modt = parameters.modt_operator();
+    let q_modt = parameters.q_modt();
+    modt.scalar_mul_mod_vec(&mut encoded_m, q_modt);
+
+    // \Delta m = t^{-1}*[Qm(X)]_t \mod Q
+    let modq_ops = parameters.modq_operators_at_level(level);
+    let mut m = <C::Poly>::zeros(q_size, ring_size);
+    izip!(
+        m.iter_rows_mut(),
+        parameters.t_inv_modqi_at_level(level).iter(),
+        modq_ops.iter()
+    )
+    .for_each(|(row_i, t_inv_modqi, modqi)| {
+        row_i.as_mut().copy_from_slice(&encoded_m);
+        modqi.scalar_mul_mod_vec(row_i.as_mut(), *t_inv_modqi);
+    });
+
+    let q_moduli_chain = parameters.q_moduli_chain_at_level(level);
+    let mut s = <C::Poly>::try_convert_from(secret.values(), q_moduli_chain);
+    let mut a = RandomUniformDist::random_ring_poly(rng, q_moduli_chain, ring_size);
+
+    // a*s
+    let ntt_ops = parameters.basisq_ntt_ops_at_level(level);
+    foward_lazy(&mut s, ntt_ops);
+    foward_lazy(&mut a, ntt_ops);
+    mul_lazy_mut(&mut s, &a, modq_ops);
+    backward(&mut s, ntt_ops);
+
+    // a*s + e
+    let e = RandomGaussianDist::random_ring_poly(rng, q_moduli_chain, ring_size);
+    add_mut(&mut s, &e, modq_ops);
+
+    // a*s + e + \Delta m
+    add_mut(&mut s, &m, modq_ops);
+
+    // -a
+    neg_mut(&mut a, modq_ops);
+
+    let c = vec![s, a];
+    BfvCiphertext::new(c, level)
+}
 
 pub fn ciphertext_add<
     Scalar: UnsignedInteger,
@@ -41,6 +147,35 @@ pub fn ciphertext_add<
     izip!(c0.c_partq_mut().iter_mut(), c1.c_partq().iter(),).for_each(|(p0, p1)| {
         izip!(p0.iter_rows_mut(), p1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
             modqi.add_mod_vec(r0.as_mut(), r1.as_ref());
+        });
+    });
+}
+
+pub fn ciphertext_sub<
+    Scalar: UnsignedInteger,
+    C: BfvCiphertext<Scalar = Scalar>,
+    P: PolyModulusOpParameters<Scalar = Scalar>,
+>(
+    c0: &mut C,
+    c1: &C,
+    parameters: &P,
+) {
+    debug_assert_eq!(
+        c0.level(),
+        c1.level(),
+        "Ciphertext levels are unequal: {} != {}",
+        c0.level(),
+        c1.level()
+    );
+    debug_assert!(
+        c0.representation() == c1.representation(),
+        "Ciphertext c0 and c1 representations are not equal"
+    );
+
+    let modq_ops = parameters.modq_vec_ops_at_level(c0.level());
+    izip!(c0.c_partq_mut().iter_mut(), c1.c_partq().iter(),).for_each(|(p0, p1)| {
+        izip!(p0.iter_rows_mut(), p1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
+            modqi.sub_mod_vec(r0.as_mut(), r1.as_ref());
         });
     });
 }
@@ -175,16 +310,6 @@ pub fn ciphertext_mul<
     // Convert polynomials in Coefficient representation to lazy Evaluation
     // representation
     {
-        fn foward_lazy<Poly: MatrixMut<MatElement = u64>, N: Ntt<Scalar = u64>>(
-            p: &mut Poly,
-            ntt_ops: &[N],
-        ) where
-            <Poly as Matrix>::R: RowMut,
-        {
-            izip!(p.iter_rows_mut(), ntt_ops.iter())
-                .for_each(|(r, nttop)| nttop.forward_lazy(r.as_mut()));
-        }
-
         // Part Q
         // c0
         let basisq_nttops = parameters.basisq_ntt_ops_at_level(level);
@@ -244,16 +369,6 @@ pub fn ciphertext_mul<
 
     // Convert polynomials in lazy Evaluation representation to Coefficient
     {
-        fn backward<Poly: MatrixMut<MatElement = u64>, N: Ntt<Scalar = u64>>(
-            p: &mut Poly,
-            ntt_ops: &[N],
-        ) where
-            <Poly as Matrix>::R: RowMut,
-        {
-            izip!(p.iter_rows_mut(), ntt_ops.iter())
-                .for_each(|(r, nttop)| nttop.backward(r.as_mut()));
-        }
-
         let basisq_nttops = parameters.basisq_ntt_ops_at_level(level);
         c_res_partq
             .iter_mut()

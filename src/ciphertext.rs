@@ -19,6 +19,7 @@ pub trait Ciphertext {
 }
 
 pub trait BfvCiphertext: Ciphertext {
+    fn new(c: Vec<Self::Poly>, level: usize) -> Self;
     fn degree(&self) -> usize;
     fn c_partq(&self) -> &[Self::Poly];
     fn c_partq_mut(&self) -> &mut [Self::Poly];

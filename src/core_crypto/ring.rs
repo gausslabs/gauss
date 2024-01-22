@@ -29,9 +29,10 @@ pub fn mul_lazy_mut<
 }
 
 pub fn add_mut<
-    MRef: Matrix<MatElement = u64>,
-    MMut: MatrixMut<MatElement = u64>,
-    ModOps: ModulusVecBackend<u64>,
+    Scalar: UnsignedInteger,
+    MRef: Matrix<MatElement = Scalar>,
+    MMut: MatrixMut<MatElement = Scalar>,
+    ModOps: ModulusVecBackend<Scalar>,
 >(
     q0: &mut MMut,
     q1: &MRef,
@@ -39,13 +40,24 @@ pub fn add_mut<
 ) where
     <MMut as Matrix>::R: RowMut,
 {
-    todo!()
+    izip!(q0.iter_rows_mut(), q1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
+        modqi.add_mod_vec(r0.as_mut(), r1.as_ref());
+    });
 }
 
-pub fn add<
-    MRef: Matrix<MatElement = u64>,
-    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
->() {
+pub fn neg_mut<
+    Scalar: UnsignedInteger,
+    MMut: MatrixMut<MatElement = Scalar>,
+    ModOps: ModulusVecBackend<Scalar>,
+>(
+    q: &mut MMut,
+    modq_ops: &[ModOps],
+) where
+    <MMut as Matrix>::R: RowMut,
+{
+    izip!(q.iter_rows_mut(), modq_ops.iter()).for_each(|(r, modqi)| {
+        modqi.neg_mod_vec(r.as_mut());
+    });
 }
 
 /// Given input polnyomial x \in Q outputs $[\lceil \frac{P \cdot x}{Q}

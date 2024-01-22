@@ -20,6 +20,16 @@ pub trait ModulusArithmeticBackend<Scalar: UnsignedInteger> {
 
     fn twice_modulus(&self) -> Scalar;
 
+    fn neg_mod_fast(&self, a: Scalar) -> Scalar {
+        debug_assert!(
+            a < self.modulus(),
+            "Input {a} >= (modulus){}",
+            self.modulus()
+        );
+
+        self.modulus() - a
+    }
+
     fn add_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
         debug_assert!(
             a < self.modulus(),
@@ -87,6 +97,7 @@ pub trait ModulusVecBackend<Scalar>
 where
     Scalar: UnsignedInteger,
 {
+    fn neg_mod_vec(&self, a: &mut [Scalar]);
     fn add_mod_vec(&self, a: &mut [Scalar], b: &[Scalar]);
     fn sub_mod_vec(&self, a: &mut [Scalar], b: &[Scalar]);
     fn mul_mod_vec(&self, a: &mut [Scalar], b: &[Scalar]);
@@ -97,25 +108,6 @@ where
     /// Inplace modular addition a=a+b. Input a nad b are in range [0, 2q) and
     /// output a is in range [0, 2q]
     fn add_lazy_mod_vec(&self, a: &mut [Scalar], b: &[Scalar]);
-}
 
-pub trait ModulusRandomVecInDistGenerator<'a, Scalar, R>
-where
-    Scalar: UnsignedInteger,
-    R: Rng,
-{
-    type IteratorUniform: Iterator<Item = Scalar>;
-    type IteratorGaussian: Iterator<Item = Scalar>;
-
-    fn random_vec_uniform_dist_in_modulus(
-        &self,
-        size: usize,
-        rng: &'a mut R,
-    ) -> Self::IteratorUniform;
-    fn random_vec_gaussian_dist_in_modulus(
-        &self,
-        std_dev: usize,
-        size: usize,
-        rng: &mut R,
-    ) -> Self::IteratorGaussian;
+    fn scalar_mul_mod_vec(&self, a: &mut [Scalar], b: Scalar);
 }

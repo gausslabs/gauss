@@ -1,8 +1,7 @@
 use super::{
     barrett::BarrettBackend,
     montgomery::{MontgomeryBackend, MontgomeryBackendConfig},
-    ModulusArithmeticBackend, ModulusBackendConfig, ModulusRandomVecInDistGenerator,
-    ModulusVecBackend, MontgomeryScalar,
+    ModulusArithmeticBackend, ModulusBackendConfig, ModulusVecBackend, MontgomeryScalar,
 };
 use itertools::{izip, Itertools};
 use rand::{
@@ -89,6 +88,12 @@ impl ModulusArithmeticBackend<MontgomeryScalar<u64>> for NativeModulusBackend {
 }
 
 impl ModulusVecBackend<u64> for NativeModulusBackend {
+    fn neg_mod_vec(&self, a: &mut [u64]) {
+        izip!(a.iter_mut()).for_each(|(a0)| {
+            *a0 = self.neg_mod_fast(*a0);
+        })
+    }
+
     fn add_mod_vec(&self, a: &mut [u64], b: &[u64]) {
         izip!(a.iter_mut(), b.iter()).for_each(|(a0, b0)| {
             *a0 = self.add_mod_fast(*a0, *b0);
@@ -120,6 +125,12 @@ impl ModulusVecBackend<u64> for NativeModulusBackend {
             *a0 = self.add_mod_fast(*a0, *b0);
         })
     }
+
+    fn scalar_mul_mod_vec(&self, a: &mut [u64], b: u64) {
+        a.iter_mut().for_each(|a0| {
+            *a0 = self.mul_mod_fast(*a0, b);
+        })
+    }
 }
 
 impl MontgomeryBackendConfig<u64, u128> for NativeModulusBackend {}
@@ -141,33 +152,6 @@ impl MontgomeryBackend<u64, u128> for NativeModulusBackend {
     #[inline]
     fn r_square_modn(&self) -> u64 {
         self.r_square_modn_mont
-    }
-}
-
-impl<'a, R> ModulusRandomVecInDistGenerator<'a, u64, R> for NativeModulusBackend
-where
-    R: CryptoRng + RngCore + 'a,
-{
-    type IteratorGaussian =
-        std::iter::Take<DistIter<rand::distributions::Uniform<u64>, &'a mut R, u64>>;
-    type IteratorUniform =
-        std::iter::Take<DistIter<rand::distributions::Uniform<u64>, &'a mut R, u64>>;
-
-    fn random_vec_gaussian_dist_in_modulus(
-        &self,
-        std_dev: usize,
-        size: usize,
-        rng: &mut R,
-    ) -> Self::IteratorGaussian {
-        todo!()
-    }
-
-    fn random_vec_uniform_dist_in_modulus(
-        &self,
-        size: usize,
-        rng: &'a mut R,
-    ) -> Self::IteratorUniform {
-        rng.sample_iter(Uniform::new(0, self.modulus)).take(size)
     }
 }
 
