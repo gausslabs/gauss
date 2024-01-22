@@ -1,9 +1,9 @@
 use super::UnsignedInteger;
-use num_traits::AsPrimitive;
+use num_traits::{AsPrimitive, PrimInt};
 
 pub trait BarrettBackend<Scalar, ScalarDoubled>
 where
-    Scalar: UnsignedInteger + AsPrimitive<ScalarDoubled> + AsPrimitive<u128> + 'static,
+    Scalar: UnsignedInteger + AsPrimitive<ScalarDoubled> + AsPrimitive<u128> + 'static + PrimInt,
     u128: AsPrimitive<Scalar>,
     ScalarDoubled: UnsignedInteger + AsPrimitive<Scalar> + 'static,
 {
@@ -29,68 +29,6 @@ where
     fn barrett_reduce(&self, a: Scalar) -> Scalar {
         // TODO (Jay): replace this by barrett reduce routine
         a % self.modulus()
-    }
-
-    fn add_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
-        debug_assert!(
-            a < self.modulus(),
-            "Input {a} >= (modulus){}",
-            self.modulus()
-        );
-        debug_assert!(
-            b < self.modulus(),
-            "Input {b} >= (modulus){}",
-            self.modulus()
-        );
-
-        let mut c = a + b;
-        if c >= self.modulus() {
-            c -= self.modulus();
-        }
-        c
-    }
-
-    /// Lazy modular addition of a,b \in [0, 2q).
-    ///
-    /// Output is in range [0, 2q)
-    fn add_lazy_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
-        debug_assert!(
-            a < self.modulus(),
-            "Input {a} >= (2*modulus){}",
-            self.modulus() * (Scalar::one() + Scalar::one())
-        );
-        debug_assert!(
-            b < self.modulus(),
-            "Input {b} >= (2*modulus){}",
-            self.modulus() * (Scalar::one() + Scalar::one())
-        );
-
-        let twice_modulus = self.modulus() * (Scalar::one() + Scalar::one());
-
-        let mut c = a + b;
-        if c >= twice_modulus {
-            c -= twice_modulus;
-        }
-        c
-    }
-
-    fn sub_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
-        debug_assert!(
-            a < self.modulus(),
-            "Input {a} >= (modulus){}",
-            self.modulus()
-        );
-        debug_assert!(
-            b < self.modulus(),
-            "Input {b} >= (modulus){}",
-            self.modulus()
-        );
-
-        if a >= b {
-            a - b
-        } else {
-            (a + self.modulus()) - b
-        }
     }
 
     /// Barrett modular multiplication with pre-compute constant \mu

@@ -1,9 +1,10 @@
+use num_traits::{
+    AsPrimitive, CheckedShl, CheckedShr, Num, NumAssign, NumOps, One, PrimInt, ToPrimitive,
+    WrappingAdd, WrappingMul, WrappingShl, WrappingShr, WrappingSub, Zero,
+};
 use std::fmt::{Debug, Display};
 
-use num_traits::{
-    AsPrimitive, CheckedShl, CheckedShr, Num, NumAssign, PrimInt, ToPrimitive, WrappingAdd,
-    WrappingMul, WrappingShl, WrappingShr, WrappingSub,
-};
+pub(crate) mod impl_num;
 
 pub trait UnsignedIntegerDoubled {}
 
@@ -13,8 +14,7 @@ pub trait NumericConstants {
 }
 
 pub trait UnsignedInteger:
-    PrimInt
-    + Num
+    Num
     + NumAssign
     + WrappingMul
     + WrappingAdd

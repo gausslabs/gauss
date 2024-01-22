@@ -3,8 +3,8 @@ use itertools::Itertools;
 use rand::{thread_rng, Rng};
 
 use gauss::core_crypto::modulus::{
-    barrett::BarrettBackend, ModulusBackendConfig, MontgomeryBackend, MontgomeryScalar,
-    NativeModulusBackend,
+    barrett::BarrettBackend, ModulusArithmeticBackend, ModulusBackendConfig, MontgomeryBackend,
+    MontgomeryScalar, NativeModulusBackend,
 };
 
 const PRIMES: [u64; 6] = [

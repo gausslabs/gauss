@@ -1,7 +1,8 @@
 use super::{
     barrett::BarrettBackend,
     montgomery::{MontgomeryBackend, MontgomeryBackendConfig},
-    ModulusBackendConfig, ModulusRandomVecInDistGenerator, ModulusVecBackend,
+    ModulusArithmeticBackend, ModulusBackendConfig, ModulusRandomVecInDistGenerator,
+    ModulusVecBackend, MontgomeryScalar,
 };
 use itertools::{izip, Itertools};
 use rand::{
@@ -11,7 +12,7 @@ use rand::{
 
 pub struct NativeModulusBackend {
     pub(crate) modulus: u64,
-    modulus_twice: u64,
+    twice_modulus: u64,
 
     barrett_constant: u64,
     barrett_alpha: usize,
@@ -31,7 +32,7 @@ impl ModulusBackendConfig<u64> for NativeModulusBackend {
 
         NativeModulusBackend {
             modulus,
-            modulus_twice: modulus * 2,
+            twice_modulus: modulus * 2,
             barrett_alpha: alpha,
             barrett_constant: mu,
             modulus_bits: 64 - modulus.leading_zeros() as usize,
@@ -58,6 +59,32 @@ impl BarrettBackend<u64, u128> for NativeModulusBackend {
     #[inline]
     fn barrett_constant(&self) -> u64 {
         self.barrett_constant
+    }
+}
+
+impl ModulusArithmeticBackend<u64> for NativeModulusBackend {
+    #[inline]
+    fn modulus(&self) -> u64 {
+        self.modulus
+    }
+    #[inline]
+    fn twice_modulus(&self) -> u64 {
+        self.twice_modulus
+    }
+}
+
+impl ModulusArithmeticBackend<MontgomeryScalar<u64>> for NativeModulusBackend {
+    #[inline]
+    fn modulus(&self) -> MontgomeryScalar<u64> {
+        // Wrapping `Scalar` as MontogomeryScalar without mapping to mont space is
+        // semantically incorrect but techincally correct because modular arithmetic
+        // (only +/-) operations in mont space are equivalent to their couterparts in
+        // normal space
+        MontgomeryScalar(self.modulus)
+    }
+    #[inline]
+    fn twice_modulus(&self) -> MontgomeryScalar<u64> {
+        MontgomeryScalar(self.twice_modulus)
     }
 }
 
@@ -102,8 +129,8 @@ impl MontgomeryBackend<u64, u128> for NativeModulusBackend {
         self.modulus
     }
 
-    fn modulus_twice(&self) -> u64 {
-        self.modulus_twice
+    fn twice_modulus(&self) -> u64 {
+        self.twice_modulus
     }
 
     #[inline]
@@ -126,7 +153,7 @@ where
     type IteratorUniform =
         std::iter::Take<DistIter<rand::distributions::Uniform<u64>, &'a mut R, u64>>;
 
-    fn random_vec_gaussian_dist_modulus(
+    fn random_vec_gaussian_dist_in_modulus(
         &self,
         std_dev: usize,
         size: usize,
@@ -135,7 +162,7 @@ where
         todo!()
     }
 
-    fn random_vec_unifrom_dist_modulus(
+    fn random_vec_uniform_dist_in_modulus(
         &self,
         size: usize,
         rng: &'a mut R,

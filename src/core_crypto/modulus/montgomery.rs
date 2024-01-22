@@ -1,13 +1,27 @@
+use std::ops::{Add, Deref, Mul, Shl, Shr, Sub};
+
 use crate::{core_crypto::num::UnsignedInteger, utils::FastModularInverse};
 use itertools::izip;
-use num_traits::AsPrimitive;
+use num_derive::{FromPrimitive, Num, NumOps, ToPrimitive};
+use num_traits::{AsPrimitive, WrappingShr};
 
 /// Wrapper around `MontgomeryScalar`s.
 ///
-/// This is just to prevent cross-arithmatic between Scalars in Montgomery space
+/// This is just to prevent cross-arithmetic between Scalars in Montgomery space
 /// and Scalars in Normal space.
 #[derive(Debug, Clone, Copy)]
 pub struct MontgomeryScalar<Scalar: UnsignedInteger>(pub(crate) Scalar);
+
+impl<Scalar> Deref for MontgomeryScalar<Scalar>
+where
+    Scalar: UnsignedInteger,
+{
+    type Target = Scalar;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl<Scalar: UnsignedInteger> MontgomeryScalar<Scalar> {
     pub fn zero() -> Self {
@@ -44,7 +58,7 @@ where
 {
     fn modulus(&self) -> Scalar;
 
-    fn modulus_twice(&self) -> Scalar;
+    fn twice_modulus(&self) -> Scalar;
 
     /// n^{-1} (mod r) where n is the original modulus
     fn n_inverse_modr(&self) -> Scalar;
@@ -85,6 +99,29 @@ where
         MontgomeryScalar(c)
     }
 
+    fn mont_add_lazy(
+        &self,
+        a: MontgomeryScalar<Scalar>,
+        b: MontgomeryScalar<Scalar>,
+    ) -> MontgomeryScalar<Scalar> {
+        debug_assert!(
+            a.0 < self.twice_modulus(),
+            "Input {a} >= {}",
+            self.twice_modulus()
+        );
+        debug_assert!(
+            b.0 < self.twice_modulus(),
+            "Input {b} >= {}",
+            self.twice_modulus()
+        );
+
+        let mut c = a.0 + b.0;
+        if c >= self.twice_modulus() {
+            c -= self.twice_modulus();
+        }
+        MontgomeryScalar(c)
+    }
+
     /// For a & b in Montgomery space, outputs `o = ab*r^{-1} (mod n)`,
     /// where `n` is the original modulus and `o \in [0,n)`
     ///
@@ -99,7 +136,7 @@ where
         a: MontgomeryScalar<Scalar>,
         b: MontgomeryScalar<Scalar>,
     ) -> MontgomeryScalar<Scalar> {
-        let r = Scalar::BITS as usize;
+        let r = Scalar::BITS;
         let n_inv = self.n_inverse_modr();
         let n = self.modulus();
 
@@ -157,8 +194,8 @@ where
 
         let mut sum = MontgomeryScalar::zero();
         izip!(a.iter(), b.iter()).for_each(|(&a0, &b0)| {
-            assert!(Scalar::zero() <= a0.0 && a0.0 < n + n); // a0 in range [0, 2q)
-            assert!(Scalar::zero() <= b0.0 && b0.0 < n + n); // b0 in range [0, 2q)
+            debug_assert!(Scalar::zero() <= a0.0 && a0.0 < n + n); // a0 in range [0, 2q)
+            debug_assert!(Scalar::zero() <= b0.0 && b0.0 < n + n); // b0 in range [0, 2q)
 
             let mul = a0.0.as_() * b0.0.as_();
             assert!(mul < (n.as_() << Scalar::BITS)); // mul < nR

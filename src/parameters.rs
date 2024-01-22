@@ -1,5 +1,8 @@
 use crate::core_crypto::{
-    modulus::{BarrettBackend, ModulusVecBackend, MontgomeryBackend, MontgomeryScalar},
+    modulus::{
+        BarrettBackend, ModulusArithmeticBackend, ModulusVecBackend, MontgomeryBackend,
+        MontgomeryScalar,
+    },
     ntt::Ntt,
     num::UnsignedInteger,
 };
@@ -33,7 +36,9 @@ pub trait PolyModulusOpParameters: Parameters {
 // SIMD encoding parameters
 
 pub trait BfvMultiplicationAlgorithm2Parameters: Parameters<Scalar = u64> {
-    type ModOp: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>;
+    type ModOp: MontgomeryBackend<u64, u128>
+        + BarrettBackend<u64, u128>
+        + ModulusArithmeticBackend<u64>;
 
     fn modq_operators_at_level(&self, level: usize) -> &[Self::ModOp];
     fn modp_operators_at_level(&self, level: usize) -> &[Self::ModOp];

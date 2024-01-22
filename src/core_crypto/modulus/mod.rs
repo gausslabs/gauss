@@ -15,6 +15,74 @@ pub trait ModulusBackendConfig<Scalar> {
     fn initialise(modulus: Scalar) -> Self;
 }
 
+pub trait ModulusArithmeticBackend<Scalar: UnsignedInteger> {
+    fn modulus(&self) -> Scalar;
+
+    fn twice_modulus(&self) -> Scalar;
+
+    fn add_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
+        debug_assert!(
+            a < self.modulus(),
+            "Input {a} >= (modulus){}",
+            self.modulus()
+        );
+        debug_assert!(
+            b < self.modulus(),
+            "Input {b} >= (modulus){}",
+            self.modulus()
+        );
+
+        let mut c = a + b;
+        if c >= self.modulus() {
+            c -= self.modulus();
+        }
+        c
+    }
+
+    /// Lazy modular addition of a,b \in [0, 2q).
+    ///
+    /// Output is in range [0, 2q)
+    fn add_lazy_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
+        debug_assert!(
+            a < self.modulus(),
+            "Input {a} >= (2*modulus){}",
+            self.twice_modulus()
+        );
+        debug_assert!(
+            b < self.modulus(),
+            "Input {b} >= (2*modulus){}",
+            self.twice_modulus()
+        );
+
+        let twice_modulus = self.twice_modulus();
+
+        let mut c = a + b;
+        if c >= twice_modulus {
+            c -= twice_modulus;
+        }
+        c
+    }
+
+    fn sub_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
+        debug_assert!(
+            a < self.modulus(),
+            "Input {a} >= (modulus){}",
+            self.modulus()
+        );
+        debug_assert!(
+            b < self.modulus(),
+            "Input {b} >= (modulus){}",
+            self.modulus()
+        );
+
+        if a >= b {
+            a - b
+        } else {
+            (a + self.modulus()) - b
+        }
+    }
+}
+
 pub trait ModulusVecBackend<Scalar>
 where
     Scalar: UnsignedInteger,
@@ -39,9 +107,12 @@ where
     type IteratorUniform: Iterator<Item = Scalar>;
     type IteratorGaussian: Iterator<Item = Scalar>;
 
-    fn random_vec_unifrom_dist_modulus(&self, size: usize, rng: &'a mut R)
-        -> Self::IteratorUniform;
-    fn random_vec_gaussian_dist_modulus(
+    fn random_vec_uniform_dist_in_modulus(
+        &self,
+        size: usize,
+        rng: &'a mut R,
+    ) -> Self::IteratorUniform;
+    fn random_vec_gaussian_dist_in_modulus(
         &self,
         std_dev: usize,
         size: usize,

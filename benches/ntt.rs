@@ -39,11 +39,11 @@ fn criterion_benchmark(c: &mut Criterion) {
             let ntt_backend = NativeNTTBackend::init(*p, size);
             let v = rng.sample_iter(Uniform::new(0, p)).take(size).collect_vec();
 
-            let id = BenchmarkId::new("Forward", size);
-            group.bench_with_input(id, &v, |b, v| {
-                let mut _v = v.clone();
-                b.iter(|| bench_forward(black_box(&ntt_backend), black_box(&mut _v)))
-            });
+            // let id = BenchmarkId::new("Forward", size);
+            // group.bench_with_input(id, &v, |b, v| {
+            //     let mut _v = v.clone();
+            //     b.iter(|| bench_forward(black_box(&ntt_backend), black_box(&mut _v)))
+            // });
 
             let id = BenchmarkId::new("Forward Lazy", size);
             group.bench_with_input(id, &v, |b, v| {
@@ -51,11 +51,11 @@ fn criterion_benchmark(c: &mut Criterion) {
                 b.iter(|| bench_forward_lazy(black_box(&ntt_backend), black_box(&mut _v)))
             });
 
-            let id = BenchmarkId::new("Backward", size);
-            group.bench_with_input(id, &v, |b, v| {
-                let mut _v = v.clone();
-                b.iter(|| bench_backward(black_box(&ntt_backend), black_box(&mut _v)))
-            });
+            // let id = BenchmarkId::new("Backward", size);
+            // group.bench_with_input(id, &v, |b, v| {
+            //     let mut _v = v.clone();
+            //     b.iter(|| bench_backward(black_box(&ntt_backend), black_box(&mut _v)))
+            // });
 
             let id = BenchmarkId::new("Backward Lazy", size);
             group.bench_with_input(id, &v, |b, v| {

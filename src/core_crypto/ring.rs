@@ -2,7 +2,10 @@ use crate::{ciphertext::Representation, core_crypto::ntt};
 
 use super::{
     matrix::{Matrix, MatrixMut, Row, RowMut},
-    modulus::{BarrettBackend, ModulusVecBackend, MontgomeryBackend, MontgomeryScalar},
+    modulus::{
+        BarrettBackend, ModulusArithmeticBackend, ModulusVecBackend, MontgomeryBackend,
+        MontgomeryScalar,
+    },
     ntt::Ntt,
     num::UnsignedInteger,
 };
@@ -53,7 +56,7 @@ pub fn add<
 pub fn fast_convert_p_over_q<
     MRef: Matrix<MatElement = u64>,
     MMut: MatrixMut<MatElement = u64>,
-    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
+    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128> + ModulusArithmeticBackend<u64>,
 >(
     p_out: &mut MMut,
     q_in: &MRef,
@@ -185,7 +188,7 @@ pub fn switch_crt_basis<
 pub fn simple_scale_and_round<
     MRef: Matrix<MatElement = u64>,
     MMut: MatrixMut<MatElement = u64>,
-    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
+    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128> + ModulusArithmeticBackend<u64>,
 >(
     t_out: &mut MMut,
     q_in: &MRef,
@@ -250,7 +253,7 @@ pub fn simple_scale_and_round<
 pub fn scale_and_round<
     MRef: Matrix<MatElement = u64>,
     MMut: MatrixMut<MatElement = u64>,
-    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128>,
+    ModOps: MontgomeryBackend<u64, u128> + BarrettBackend<u64, u128> + ModulusArithmeticBackend<u64>,
 >(
     q_out: &mut MMut,
     q_in: &MRef,
