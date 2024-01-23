@@ -12,13 +12,13 @@ use crate::{
         num::UnsignedInteger,
         random::{RandomGaussianDist, RandomUniformDist},
         ring::{
-            self, add_mut, fast_convert_p_over_q, mul_lazy_mut, neg_mut, scale_and_round,
-            switch_crt_basis,
+            self, add_lazy_mut, add_mut, fast_convert_p_over_q, mul_lazy_mut, neg_mut,
+            scale_and_round, simple_scale_and_round, switch_crt_basis,
         },
     },
     keys::{EncodedMessage, SecretKey},
     parameters::{
-        BfvEncodingDecodingParameters, BfvEncryptionParameters,
+        BfvDecryptionParameters, BfvEncodingDecodingParameters, BfvEncryptionParameters,
         BfvMultiplicationAlgorithm2Parameters, PolyModulusOpParameters, PolyNttOpParameters,
     },
     utils::convert::{TryConvertFrom, TryConvertFromParts},
@@ -107,12 +107,12 @@ where
     let mut encoded_m = message.value().to_vec();
 
     // [Qm(X)]_t
-    let modt = parameters.modt_operator();
-    let q_modt = parameters.q_modt();
-    modt.scalar_mul_mod_vec(&mut encoded_m, q_modt);
+    let modt = parameters.modt_op();
+    let q_modt = parameters.q_modt_at_level(level);
+    modt.scalar_mul_mod_vec(&mut encoded_m, *q_modt);
 
     // \Delta m = t^{-1}*[Qm(X)]_t \mod Q
-    let modq_ops = parameters.modq_operators_at_level(level);
+    let modq_ops = parameters.modq_ops_at_level(level);
     let mut m = <C::Poly>::zeros(q_size, ring_size);
     izip!(
         m.iter_rows_mut(),
@@ -147,6 +147,66 @@ where
 
     let c = vec![s, a];
     InitialiseLevelledCiphertext::new(c, level, Representation::Coefficient)
+}
+
+pub fn secret_key_decryption<
+    'a,
+    C: BfvCiphertext<Scalar = u64>,
+    P: BfvDecryptionParameters<Scalar = u64>,
+    S: SecretKey<Scalar = i32>,
+>(
+    c: &C,
+    secret: &'a S,
+    parameters: &'a P,
+) where
+    <C as Ciphertext>::Poly: Clone + TryConvertFrom<&'a [i32], Parameters = &'a [u64]>,
+{
+    let level = c.level();
+
+    let basisq_ntt_ops = parameters.basisq_ntt_ops_at_level(level);
+
+    let q_moduli_chain = parameters.q_moduli_chain_at_level(level);
+
+    let mut s = C::Poly::try_convert_from(secret.values(), q_moduli_chain);
+    foward_lazy(&mut s, basisq_ntt_ops);
+
+    let mut c0 = c.c_partq()[0].clone();
+    if c.representation() == Representation::Coefficient {
+        foward_lazy(&mut c0, basisq_ntt_ops);
+    }
+
+    let s_clone = s.clone();
+    let modq_ops = parameters.modq_ops_at_level(level);
+    for i in 1..c.c_partq().len() {
+        let mut ci = if c.representation() == Representation::Coefficient {
+            let mut ci = c.c_partq()[i].clone();
+            foward_lazy(&mut ci, basisq_ntt_ops);
+            ci
+        } else {
+            c.c_partq()[i].clone()
+        };
+
+        mul_lazy_mut(&mut ci, &s, modq_ops);
+        add_lazy_mut(&mut c0, &ci, modq_ops);
+        mul_lazy_mut(&mut s, &s_clone, modq_ops);
+    }
+
+    backward(&mut c0, basisq_ntt_ops);
+
+    let ring_size = parameters.ring_size();
+    let mut t_out = C::Poly::zeros(1, ring_size);
+    simple_scale_and_round(
+        &mut t_out,
+        &c0,
+        parameters.q_over_qi_inv_modqi_times_t_over_qi_modt_at_level(level),
+        parameters.beta_times_q_over_qi_inv_modqi_times_t_over_qi_modt_at_level(level),
+        parameters.q_over_qi_inv_modqi_times_t_over_qi_fractional_at_level(level),
+        parameters.beta_times_q_over_qi_inv_modqi_times_t_over_qi_fractional_at_level(level),
+        parameters.log_beta(),
+        parameters.modt_op(),
+        level + 1,
+        ring_size,
+    );
 }
 
 pub fn ciphertext_add<

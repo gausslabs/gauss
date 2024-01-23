@@ -33,5 +33,3 @@ pub trait BfvCiphertext: Ciphertext {
 pub trait ExtendedBfvCiphertext: BfvCiphertext {
     fn c_partp(&self) -> &[Self::Poly];
 }
-
-

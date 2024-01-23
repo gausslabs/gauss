@@ -28,6 +28,23 @@ pub fn mul_lazy_mut<
     });
 }
 
+pub fn add_lazy_mut<
+    Scalar: UnsignedInteger,
+    MRef: Matrix<MatElement = Scalar>,
+    MMut: MatrixMut<MatElement = Scalar>,
+    ModOps: ModulusVecBackend<Scalar>,
+>(
+    q0: &mut MMut,
+    q1: &MRef,
+    modq_ops: &[ModOps],
+) where
+    <MMut as Matrix>::R: RowMut,
+{
+    izip!(q0.iter_rows_mut(), q1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
+        modqi.add_lazy_mod_vec(r0.as_mut(), r1.as_ref());
+    });
+}
+
 pub fn add_mut<
     Scalar: UnsignedInteger,
     MRef: Matrix<MatElement = Scalar>,
@@ -214,7 +231,7 @@ pub fn simple_scale_and_round<
     q_over_qi_inv_modqi_times_t_over_qi_fractional: &[f64],
     beta_times_q_over_qi_inv_modqi_times_t_over_qi_fractional: &[f64],
     log_beta: usize,
-    modt_operator: ModOps,
+    modt_operator: &ModOps,
     q_size: usize,
     ring_size: usize,
 ) where
@@ -606,7 +623,7 @@ mod tests {
             &q_over_qi_inv_mod_qi_times_t_over_qi_fractional_vec,
             &beta_times_q_over_qi_inv_mod_qi_times_t_over_qi_fractional_vec,
             log_beta,
-            modt_operator,
+            &modt_operator,
             q_chain.len(),
             n,
         );
