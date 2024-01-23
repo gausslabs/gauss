@@ -87,3 +87,29 @@ pub trait BfvEncryptionParameters: Parameters {
 // Levelling Down Parameters
 
 // SIMD encoding parameters
+
+pub trait BfvEncodingDecodingParameters: Parameters {
+    type ModOp: ModulusVecBackend<Self::Scalar>;
+    type NttOp: Ntt<Scalar = Self::Scalar>;
+
+    fn ring_size(&self) -> usize;
+    fn matrix_representation_index_map(&self) -> Vec<usize>;
+    fn t_ntt_op(&self) -> &Self::NttOp;
+    fn modt_op(&self) -> &Self::ModOp;
+}
+
+// TODO (Jay)
+// // Taken from [SEAL](https://github.com/microsoft/SEAL/blob/82b07db635132e297282649e2ab5908999089ad2/native/src/seal/batchencoder.cpp)
+//         let row = degree >> 1;
+//         let m = degree << 1;
+//         let gen = 3;
+//         let mut pos = 1;
+//         let mut matrix_reps_index_map = vec![0usize; degree];
+//         for i in 0..row {
+//             let index1 = (pos - 1) >> 1;
+//             let index2 = (m - pos - 1) >> 1;
+//             matrix_reps_index_map[i] = index1.reverse_bits() >>
+// (degree.leading_zeros() + 1);             matrix_reps_index_map[i | row] =
+// index2.reverse_bits() >> (degree.leading_zeros() + 1);             pos *=
+// gen;             pos &= m - 1;
+//         }

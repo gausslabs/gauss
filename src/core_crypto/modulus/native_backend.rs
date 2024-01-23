@@ -88,6 +88,12 @@ impl ModulusArithmeticBackend<MontgomeryScalar<u64>> for NativeModulusBackend {
 }
 
 impl ModulusVecBackend<u64> for NativeModulusBackend {
+    fn reduce_vec(&self, a: &mut [u64]) {
+        izip!(a.iter_mut()).for_each(|(a0)| {
+            *a0 = self.barrett_reduce(*a0);
+        })
+    }
+
     fn neg_mod_vec(&self, a: &mut [u64]) {
         izip!(a.iter_mut()).for_each(|(a0)| {
             *a0 = self.neg_mod_fast(*a0);

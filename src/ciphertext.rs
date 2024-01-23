@@ -18,8 +18,12 @@ pub trait Ciphertext {
     fn representation(&self) -> Representation;
 }
 
+pub trait InitialiseLevelledCiphertext {
+    type C;
+    fn new(c: Self::C, level: usize, representation: Representation) -> Self;
+}
+
 pub trait BfvCiphertext: Ciphertext {
-    fn new(c: Vec<Self::Poly>, level: usize) -> Self;
     fn degree(&self) -> usize;
     fn c_partq(&self) -> &[Self::Poly];
     fn c_partq_mut(&self) -> &mut [Self::Poly];
@@ -29,3 +33,5 @@ pub trait BfvCiphertext: Ciphertext {
 pub trait ExtendedBfvCiphertext: BfvCiphertext {
     fn c_partp(&self) -> &[Self::Poly];
 }
+
+

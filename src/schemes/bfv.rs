@@ -4,7 +4,7 @@ use itertools::izip;
 use rand::{CryptoRng, RngCore};
 
 use crate::{
-    ciphertext::{BfvCiphertext, Ciphertext, Representation},
+    ciphertext::{BfvCiphertext, Ciphertext, InitialiseLevelledCiphertext, Representation},
     core_crypto::{
         matrix::{Matrix, MatrixMut, RowMut},
         modulus::ModulusVecBackend,
@@ -18,8 +18,8 @@ use crate::{
     },
     keys::{EncodedMessage, SecretKey},
     parameters::{
-        BfvEncryptionParameters, BfvMultiplicationAlgorithm2Parameters, PolyModulusOpParameters,
-        PolyNttOpParameters,
+        BfvEncodingDecodingParameters, BfvEncryptionParameters,
+        BfvMultiplicationAlgorithm2Parameters, PolyModulusOpParameters, PolyNttOpParameters,
     },
     utils::convert::{TryConvertFrom, TryConvertFromParts},
 };
@@ -50,6 +50,34 @@ fn backward<
     izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.backward(r.as_mut()));
 }
 
+pub fn simd_encode_message<
+    Scalar: UnsignedInteger,
+    P: BfvEncodingDecodingParameters<Scalar = Scalar>,
+>(
+    m: &[Scalar],
+    parameters: &P,
+) -> Vec<Scalar> {
+    debug_assert!(
+        m.len() > parameters.ring_size(),
+        "Message length {} > ring size {}",
+        m.len(),
+        parameters.ring_size()
+    );
+
+    let ring_size = parameters.ring_size();
+
+    let matrix_representation_index = parameters.matrix_representation_index_map();
+    let mut message = vec![Scalar::zero(); ring_size];
+    m.iter().enumerate().for_each(|(index, v)| {
+        message[matrix_representation_index[index]] = *v;
+    });
+
+    parameters.modt_op().reduce_vec(&mut message);
+    parameters.t_ntt_op().backward(&mut message);
+
+    message
+}
+
 pub fn secret_key_encryption<
     'a,
     Scalar: 'a + UnsignedInteger,
@@ -57,7 +85,7 @@ pub fn secret_key_encryption<
     S: SecretKey<Scalar = i32>,
     E: EncodedMessage<Scalar = Scalar>,
     P: BfvEncryptionParameters<Scalar = Scalar> + PolyNttOpParameters,
-    C: BfvCiphertext<Poly = Poly>,
+    C: BfvCiphertext<Poly = Poly> + InitialiseLevelledCiphertext<C = Vec<Poly>>,
     R: RandomUniformDist<Scalar = Scalar, Poly = Poly>
         + RandomGaussianDist<Scalar = Scalar, Poly = Poly>
         + CryptoRng,
@@ -76,8 +104,7 @@ where
     let ring_size = parameters.ring_size();
 
     // m(X)
-    let mut encoded_m = Vec::<Scalar>::with_capacity(ring_size);
-    encoded_m.copy_from_slice(message.value());
+    let mut encoded_m = message.value().to_vec();
 
     // [Qm(X)]_t
     let modt = parameters.modt_operator();
@@ -119,7 +146,7 @@ where
     neg_mut(&mut a, modq_ops);
 
     let c = vec![s, a];
-    BfvCiphertext::new(c, level)
+    InitialiseLevelledCiphertext::new(c, level, Representation::Coefficient)
 }
 
 pub fn ciphertext_add<

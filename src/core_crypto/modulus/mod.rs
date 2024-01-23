@@ -97,6 +97,9 @@ pub trait ModulusVecBackend<Scalar>
 where
     Scalar: UnsignedInteger,
 {
+    /// Elements in input vector `a` are in range [0, Scalar::MAX].
+    /// Elements are reduce inplace to rnage [0, q)
+    fn reduce_vec(&self, a: &mut [Scalar]);
     fn neg_mod_vec(&self, a: &mut [Scalar]);
     fn add_mod_vec(&self, a: &mut [Scalar], b: &[Scalar]);
     fn sub_mod_vec(&self, a: &mut [Scalar], b: &[Scalar]);
