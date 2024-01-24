@@ -21,11 +21,7 @@ pub fn random_vec_in_fq<T: UnsignedInteger + rand::distributions::uniform::Sampl
 
 pub struct TestRng {}
 
-impl RandomUniformDist for TestRng {
-    type Scalar = u64;
-    type Row = Vec<Self::Scalar>;
-    type Poly = Vec<Vec<u64>>;
-
+impl RandomUniformDist<u64, Vec<Vec<u64>>> for TestRng {
     fn random_ring_poly(&self, moduli_chain: &[u64], ring_size: usize) -> Vec<Vec<u64>> {
         let mut rng = thread_rng();
         moduli_chain

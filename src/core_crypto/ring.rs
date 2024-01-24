@@ -601,7 +601,6 @@ mod tests {
                 ),
             );
             // fractional part: ((\beta * v_i) % q_i) / q_i
-
             beta_times_q_over_qi_inv_mod_qi_times_t_over_qi_fractional_vec.push(
                 ((beta * &q_over_qi_inv_mod_qi_times_t) % qi)
                     .to_f64()

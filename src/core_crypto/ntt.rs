@@ -170,6 +170,7 @@ pub fn ntt_inv_lazy(
         .for_each(|a0| *a0 = ((*a0 as u128 * n_inv as u128) % q as u128) as u64);
 }
 
+#[derive(Default)]
 pub struct NativeNTTBackend {
     q: u64,
     q_twice: u64,

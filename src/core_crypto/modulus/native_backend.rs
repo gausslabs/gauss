@@ -9,6 +9,7 @@ use rand::{
     CryptoRng, Rng, RngCore,
 };
 
+#[derive(Default)]
 pub struct NativeModulusBackend {
     pub(crate) modulus: u64,
     twice_modulus: u64,

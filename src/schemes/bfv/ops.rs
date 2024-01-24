@@ -16,7 +16,7 @@ use crate::{
             scale_and_round, simple_scale_and_round, switch_crt_basis,
         },
     },
-    keys::{EncodedMessage, SecretKey},
+    keys::SecretKey,
     parameters::{
         BfvDecryptionParameters, BfvEncodingDecodingParameters, BfvEncryptionParameters,
         BfvMultiplicationAlgorithm2Parameters, PolyModulusOpParameters, PolyNttOpParameters,
@@ -83,15 +83,12 @@ pub fn secret_key_encryption<
     Scalar: 'a + UnsignedInteger,
     Poly: MatrixMut<MatElement = Scalar>,
     S: SecretKey<Scalar = i32>,
-    E: EncodedMessage<Scalar = Scalar>,
-    P: BfvEncryptionParameters<Scalar = Scalar> + PolyNttOpParameters,
+    P: BfvEncryptionParameters<Scalar = Scalar>,
     C: BfvCiphertext<Poly = Poly> + InitialiseLevelledCiphertext<C = Vec<Poly>>,
-    R: RandomUniformDist<Scalar = Scalar, Poly = Poly>
-        + RandomGaussianDist<Scalar = Scalar, Poly = Poly>
-        + CryptoRng,
+    R: RandomUniformDist<Scalar, Poly> + RandomGaussianDist<Scalar, Poly> + CryptoRng,
 >(
     secret: &'a S,
-    message: &E,
+    message: &[Scalar],
     parameters: &'a P,
     rng: &R,
     level: usize,
@@ -104,7 +101,7 @@ where
     let ring_size = parameters.ring_size();
 
     // m(X)
-    let mut encoded_m = message.value().to_vec();
+    let mut encoded_m = message.to_vec();
 
     // [Qm(X)]_t
     let modt = parameters.modt_op();
