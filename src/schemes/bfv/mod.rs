@@ -51,9 +51,9 @@ impl SecretWithHammingWeight for BfvSecretKey {
     }
 }
 
-impl<'a, P> Encryptor<&'a [u64], BfvCiphertextScalarU64<P>> for BfvSecretKey
+impl<P> Encryptor<&[u64], BfvCiphertextScalarU64<P>> for BfvSecretKey
 where
-    P: TryConvertFrom<&'a [i32], Parameters = &'a [u64]> + MatrixMut<MatElement = u64>,
+    P: for<'a> TryConvertFrom<&'a [i32], Parameters = &'a [u64]> + MatrixMut<MatElement = u64>,
     <P as Matrix>::R: RowMut,
 {
     fn encrypt(&self, message: &[u64]) -> BfvCiphertextScalarU64<P> {
