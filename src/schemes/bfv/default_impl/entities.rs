@@ -23,7 +23,7 @@ use crate::{
 use itertools::Itertools;
 use num_bigint::BigUint;
 use num_traits::{FromPrimitive, One, ToPrimitive};
-use std::{fmt::Debug, sync::OnceLock};
+use std::sync::OnceLock;
 
 pub static NATIVE_BFV_CLIENT_PARAMETERS_U64: OnceLock<
     BfvClientParametersForScalarU64<NativeModulusBackend, NativeNTTBackend>,
@@ -63,14 +63,12 @@ impl BfvSecretKey {
 
 impl<P> Encryptor<&[u64], BfvCiphertextScalarU64GenericStorage<P>> for BfvSecretKey
 where
-    P: for<'a> TryConvertFrom<&'a [i32], Parameters = &'a [u64]>
-        + MatrixMut<MatElement = u64>
-        + Debug,
+    P: for<'a> TryConvertFrom<&'a [i32], Parameters = &'a [u64]> + MatrixMut<MatElement = u64>,
     <P as Matrix>::R: RowMut,
 {
     fn encrypt(&self, message: &[u64]) -> BfvCiphertextScalarU64GenericStorage<P> {
-        DefaultU64SeededRandomGenerator::with_local(|random_generator| {
-            BfvClientParametersForScalarU64::with_global(|parameters| {
+        BfvClientParametersForScalarU64::with_global(|parameters| {
+            DefaultU64SeededRandomGenerator::with_local_mut(|random_generator| {
                 let encoded_message = simd_encode_message(message, parameters);
                 secret_key_encryption(self, &encoded_message, parameters, random_generator, 0)
             })
@@ -150,7 +148,8 @@ where
 pub(crate) struct BfvClientParametersForScalarU64<M, N> {
     ring_size: usize,
     q_moduli_chain: Vec<u64>,
-    levels_plus_1: usize,
+    max_level_plus_1: usize,
+    max_level: usize,
     modq_ops: Vec<M>,
     modt_op: M,
     t_ntt_op: N,
@@ -159,7 +158,7 @@ pub(crate) struct BfvClientParametersForScalarU64<M, N> {
 
     // Encryption precomputes
     q_modt_at_level: Vec<u64>,
-    t_inv_modqi_at_level: Vec<Vec<u64>>,
+    neg_t_inv_modqi_at_level: Vec<Vec<u64>>,
     matrix_representation_index_map: Vec<usize>,
 
     // Decryption precomputes
@@ -181,14 +180,15 @@ impl<M: Default, N: Default> Default for BfvClientParametersForScalarU64<M, N> {
         Self {
             ring_size: 0,
             q_moduli_chain: vec![],
-            levels_plus_1: 0,
+            max_level_plus_1: 0,
+            max_level: 0,
             secret_hw: 0,
             modq_ops: vec![],
             modt_op: M::default(),
             t_ntt_op: N::default(),
             basisq_ntt_ops: vec![],
             q_modt_at_level: vec![],
-            t_inv_modqi_at_level: vec![],
+            neg_t_inv_modqi_at_level: vec![],
             matrix_representation_index_map: vec![],
             q_over_qi_inv_modqi_times_t_over_qi_modt_at_level: vec![],
             beta_times_q_over_qi_inv_modqi_times_t_over_qi_modt_at_level: vec![],
@@ -225,18 +225,18 @@ impl<
         // Precomputes for encryption, decrption, encoding, decoding
         let mut q_clone = q.clone();
         let mut q_modt_at_level = vec![];
-        let mut t_inv_modqi_at_level = vec![];
+        let mut neg_t_inv_modqi_at_level = vec![];
         let big_t = BigUint::from_u64(t).unwrap();
         for i in 0..levels + 1 {
             q_modt_at_level.push((&q_clone % t).to_u64().unwrap());
 
-            // t^{-1} \mod Q
-            let t_inv_modq = mod_inverse_big_unit(&big_t, &q_clone);
-            let mut t_inv_modqi = vec![];
-            for j in 0..i + 1 {
-                t_inv_modqi.push((&t_inv_modq % q_moduli_chain[j]).to_u64().unwrap());
+            // -t^{-1} \mod Q
+            let neg_t_inv_modq = &q_clone - mod_inverse_big_unit(&big_t, &q_clone);
+            let mut neg_t_inv_modqi = vec![];
+            for j in 0..levels + 1 - i {
+                neg_t_inv_modqi.push((&neg_t_inv_modq % q_moduli_chain[j]).to_u64().unwrap());
             }
-            t_inv_modqi_at_level.push(t_inv_modqi);
+            neg_t_inv_modqi_at_level.push(neg_t_inv_modqi);
 
             q_clone /= q_moduli_chain[levels - i];
         }
@@ -337,14 +337,15 @@ impl<
         Self {
             ring_size,
             q_moduli_chain: q_moduli_chain.to_vec(),
-            levels_plus_1: q_moduli_chain.len(),
+            max_level_plus_1: q_moduli_chain.len(),
+            max_level: q_moduli_chain.len() - 1,
             basisq_ntt_ops,
             modq_ops,
             modt_op,
             secret_hw: ring_size >> 1,
             t_ntt_op,
             q_modt_at_level,
-            t_inv_modqi_at_level,
+            neg_t_inv_modqi_at_level,
             matrix_representation_index_map,
             q_over_qi_inv_modqi_times_t_over_qi_fractional_at_level,
             beta_times_q_over_qi_inv_modqi_times_t_over_qi_fractional_at_level,
@@ -384,12 +385,16 @@ impl<M: ModulusVecBackend<u64> + ModulusBackendConfig<u64>, N: NttConfig<Scalar 
     type ModOp = M;
     type NttOp = N;
 
+    fn max_level(&self) -> usize {
+        self.max_level
+    }
+
     fn modq_ops_at_level(&self, level: usize) -> &[Self::ModOp] {
-        &self.modq_ops[..self.levels_plus_1 - level]
+        &self.modq_ops[..self.max_level_plus_1 - level]
     }
 
     fn basisq_ntt_ops_at_level(&self, level: usize) -> &[Self::NttOp] {
-        &self.basisq_ntt_ops[..self.levels_plus_1 - level]
+        &self.basisq_ntt_ops[..self.max_level_plus_1 - level]
     }
 
     fn modt_op(&self) -> &Self::ModOp {
@@ -401,15 +406,15 @@ impl<M: ModulusVecBackend<u64> + ModulusBackendConfig<u64>, N: NttConfig<Scalar 
     }
 
     fn q_moduli_chain_at_level(&self, level: usize) -> &[Self::Scalar] {
-        &self.q_moduli_chain[..self.levels_plus_1 - level]
+        &self.q_moduli_chain[..self.max_level_plus_1 - level]
     }
 
     fn ring_size(&self) -> usize {
         self.ring_size
     }
 
-    fn t_inv_modqi_at_level(&self, level: usize) -> &[Self::Scalar] {
-        &self.t_inv_modqi_at_level[level]
+    fn neg_t_inv_modqi_at_level(&self, level: usize) -> &[Self::Scalar] {
+        &self.neg_t_inv_modqi_at_level[level]
     }
 }
 
@@ -425,12 +430,16 @@ impl<
     type ModOps = M;
     type NttOp = N;
 
+    fn max_level(&self) -> usize {
+        self.max_level
+    }
+
     fn basisq_ntt_ops_at_level(&self, level: usize) -> &[Self::NttOp] {
-        &self.basisq_ntt_ops[..self.levels_plus_1 - level]
+        &self.basisq_ntt_ops[..self.max_level_plus_1 - level]
     }
 
     fn modq_ops_at_level(&self, level: usize) -> &[Self::ModOps] {
-        &self.modq_ops[..self.levels_plus_1 - level]
+        &self.modq_ops[..self.max_level_plus_1 - level]
     }
 
     fn modt_op(&self) -> &Self::ModOps {
@@ -438,7 +447,7 @@ impl<
     }
 
     fn q_moduli_chain_at_level(&self, level: usize) -> &[Self::Scalar] {
-        &self.q_moduli_chain[..self.levels_plus_1 - level]
+        &self.q_moduli_chain[..self.max_level_plus_1 - level]
     }
 
     fn ring_size(&self) -> usize {

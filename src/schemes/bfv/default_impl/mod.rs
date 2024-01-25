@@ -40,11 +40,18 @@ mod tests {
 
     #[test]
     fn encryption_decryption_works() {
-        build_parameters(&[50, 50], 65537, 1 << 4);
+        build_parameters(&[40, 40], 65537, 1 << 3);
         let secret = BfvSecretKey::new();
 
-        let ct: BfvCiphertext = secret.encrypt(&[21]);
-        let m = secret.decrypt(ct);
-        dbg!(m);
+        let m = vec![1];
+        let ct: BfvCiphertext = secret.encrypt(&m);
+        let m_back = secret.decrypt(ct);
+        assert_eq!(
+            m,
+            m_back[..m.len()],
+            "Expected message {:?} got {:?}",
+            m,
+            m_back
+        );
     }
 }

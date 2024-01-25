@@ -42,6 +42,8 @@ pub trait BfvMultiplicationAlgorithm2Parameters: Parameters<Scalar = u64> {
         + ModulusArithmeticBackend<u64>
         + ModulusArithmeticBackend<MontgomeryScalar<u64>>;
 
+    fn max_level(&self) -> usize;
+
     fn modq_operators_at_level(&self, level: usize) -> &[Self::ModOp];
     fn modp_operators_at_level(&self, level: usize) -> &[Self::ModOp];
 
@@ -83,6 +85,7 @@ pub trait BfvEncryptionParameters: Parameters {
     type ModOp: ModulusVecBackend<Self::Scalar>;
     type NttOp: Ntt<Scalar = Self::Scalar>;
 
+    fn max_level(&self) -> usize;
     fn modq_ops_at_level(&self, level: usize) -> &[Self::ModOp];
     fn basisq_ntt_ops_at_level(&self, level: usize) -> &[Self::NttOp];
     fn modt_op(&self) -> &Self::ModOp;
@@ -90,7 +93,7 @@ pub trait BfvEncryptionParameters: Parameters {
     fn q_moduli_chain_at_level(&self, level: usize) -> &[Self::Scalar];
 
     fn q_modt_at_level(&self, level: usize) -> &Self::Scalar;
-    fn t_inv_modqi_at_level(&self, level: usize) -> &[Self::Scalar];
+    fn neg_t_inv_modqi_at_level(&self, level: usize) -> &[Self::Scalar];
 }
 
 pub trait BfvDecryptionParameters: Parameters {
@@ -106,6 +109,7 @@ pub trait BfvDecryptionParameters: Parameters {
     fn modq_ops_at_level(&self, level: usize) -> &[Self::ModOps];
     fn modt_op(&self) -> &Self::ModOps;
     fn ring_size(&self) -> usize;
+    fn max_level(&self) -> usize;
 
     fn q_over_qi_inv_modqi_times_t_over_qi_modt_at_level(
         &self,

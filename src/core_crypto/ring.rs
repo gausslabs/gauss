@@ -1,12 +1,9 @@
-use crate::{ciphertext::Representation, core_crypto::ntt};
-
 use super::{
     matrix::{Matrix, MatrixMut, Row, RowMut},
     modulus::{
         BarrettBackend, ModulusArithmeticBackend, ModulusVecBackend, MontgomeryBackend,
         MontgomeryScalar,
     },
-    ntt::Ntt,
     num::UnsignedInteger,
 };
 use itertools::{izip, Itertools};
@@ -23,6 +20,13 @@ pub fn mul_lazy_mut<
 ) where
     <MMut as Matrix>::R: RowMut,
 {
+    debug_assert!(
+        q0.dimension() == q1.dimension(),
+        "Inputs matrices have unequal dimensions: {:#?}!={:#?}",
+        q0.dimension(),
+        q1.dimension()
+    );
+
     izip!(q0.iter_rows_mut(), q1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
         modqi.mul_lazy_mod_vec(r0.as_mut(), r1.as_ref());
     });
@@ -40,6 +44,13 @@ pub fn add_lazy_mut<
 ) where
     <MMut as Matrix>::R: RowMut,
 {
+    debug_assert!(
+        q0.dimension() == q1.dimension(),
+        "Inputs matrices have unequal dimensions: {:#?}!={:#?}",
+        q0.dimension(),
+        q1.dimension()
+    );
+
     izip!(q0.iter_rows_mut(), q1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
         modqi.add_lazy_mod_vec(r0.as_mut(), r1.as_ref());
     });
@@ -57,6 +68,13 @@ pub fn add_mut<
 ) where
     <MMut as Matrix>::R: RowMut,
 {
+    debug_assert!(
+        q0.dimension() == q1.dimension(),
+        "Input matrices have unequal dimensions: {:#?}!={:#?}",
+        q0.dimension(),
+        q1.dimension()
+    );
+
     izip!(q0.iter_rows_mut(), q1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
         modqi.add_mod_vec(r0.as_mut(), r1.as_ref());
     });
@@ -100,6 +118,14 @@ pub fn fast_convert_p_over_q<
 ) where
     <MMut as Matrix>::R: RowMut,
 {
+    debug_assert!(q_in.dimension() == (q_size, ring_size));
+    debug_assert!(p_out.dimension() == (p_size, ring_size));
+    debug_assert!(modq_operators.len() == q_size);
+    debug_assert!(modp_operators.len() == p_size);
+    debug_assert!(neg_p_times_q_over_qi_inv_modqi.len() == q_size);
+    debug_assert!(qi_inv_per_modpj.len() == p_size);
+    debug_assert!(one_over_qi.len() == q_size);
+
     for ri in 0..ring_size {
         let mut mu = 0.5f64;
         // qxi_values = for each i: qxi * [-p(q/qi)^{-1}]_q_i \mod{q_i}
@@ -163,6 +189,15 @@ pub fn switch_crt_basis<
 ) where
     <MMut as Matrix>::R: RowMut,
 {
+    debug_assert!(p_out.dimension() == (p_size, ring_size));
+    debug_assert!(q_in.dimension() == (q_size, ring_size));
+    debug_assert!(q_over_qi_inv_modqi.len() == q_size);
+    debug_assert!(q_over_qi_per_modpj.len() == p_size);
+    debug_assert!(mu_times_q_per_modpj.len() == p_size);
+    debug_assert!(one_over_qi.len() == q_size);
+    debug_assert!(modq_operators.len() == q_size);
+    debug_assert!(modp_operators.len() == p_size);
+
     for ri in 0..ring_size {
         let mut mu = 0.5f64;
         // q_values = for each i: qx_i * {q/q_i}^{-1}_q_i \mod{q_i}
@@ -237,6 +272,13 @@ pub fn simple_scale_and_round<
 ) where
     <MMut as Matrix>::R: RowMut,
 {
+    debug_assert!(t_out.dimension() == (1, ring_size));
+    debug_assert!(q_in.dimension() == (q_size, ring_size));
+    debug_assert!(q_over_qi_inv_modqi_times_t_over_qi_modt.len() == q_size);
+    debug_assert!(beta_times_q_over_qi_inv_modqi_times_t_over_qi_modt.len() == q_size);
+    debug_assert!(q_over_qi_inv_modqi_times_t_over_qi_fractional.len() == q_size);
+    debug_assert!(beta_times_q_over_qi_inv_modqi_times_t_over_qi_fractional.len() == q_size);
+
     for ri in 0..ring_size {
         let mut fractional_lo = 0.5f64;
         let mut fractional_hi = 0.5f64;
@@ -307,6 +349,15 @@ pub fn scale_and_round<
 ) where
     <MMut as Matrix>::R: RowMut,
 {
+    debug_assert!(q_out.dimension() == (q_size, ring_size));
+    debug_assert!(q_in.dimension() == (q_size, ring_size));
+    debug_assert!(p_in.dimension() == (p_size, ring_size));
+    debug_assert!(modq_operators.len() == q_size);
+    debug_assert!(modp_operators.len() == p_size);
+    debug_assert!(qp_over_pj_inv_modpj_times_tq_per_modqi_rational.len() == q_size);
+    debug_assert!(qp_over_pj_inv_modpj_times_tq_fractional.len() == p_size);
+    debug_assert!(qp_over_qi_inv_modqi_times_tq_over_qi_modqi.len() == q_size);
+
     for ri in 0..ring_size {
         // summation for fractional can be done without modular reduction per `qi`
         let mut sum_fractional = 0.5f64;
@@ -419,7 +470,7 @@ mod tests {
             .collect_vec();
         let one_over_qi = q_chain.iter().map(|qi| 1f64 / *qi as f64).collect_vec();
 
-        let test = TestRng {};
+        let mut test = TestRng {};
 
         let poly_q_in = test.random_ring_poly(&q_chain, n);
         let mut poly_p_out = Vec::<Vec<u64>>::zeros(p_chain.len(), n);
@@ -515,7 +566,7 @@ mod tests {
             })
             .collect_vec();
 
-        let test_rng = TestRng {};
+        let mut test_rng = TestRng {};
 
         let poly_q_in = test_rng.random_ring_poly(&q_chain, n);
         let mut poly_p_out = Vec::<Vec<u64>>::zeros(p_chain.len(), n);
@@ -609,7 +660,7 @@ mod tests {
             );
         });
 
-        let test_rng = TestRng {};
+        let mut test_rng = TestRng {};
 
         let poly_q_in = test_rng.random_ring_poly(&q_chain, n);
         let mut poly_t_out = Vec::<Vec<u64>>::zeros(1, n);
@@ -721,7 +772,7 @@ mod tests {
             })
             .collect_vec();
 
-        let test_rng = TestRng {};
+        let mut test_rng = TestRng {};
 
         // Random polynomial in QP
         let poly0_q_part = test_rng.random_ring_poly(&q_chain, n);

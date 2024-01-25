@@ -1,8 +1,6 @@
-use std::{fmt::Debug, task::Poll};
-
 use itertools::{izip, Itertools};
 use num_traits::Signed;
-use rand::{distributions::uniform::SampleBorrow, CryptoRng, RngCore};
+use rand::{CryptoRng, RngCore};
 
 use crate::{
     ciphertext::{Ciphertext, InitialiseLevelledCiphertext, Representation, RlweCiphertext},
@@ -25,7 +23,7 @@ use crate::{
         BfvDecryptionParameters, BfvEncodingDecodingParameters, BfvEncryptionParameters,
         BfvMultiplicationAlgorithm2Parameters, PolyModulusOpParameters, PolyNttOpParameters,
     },
-    utils::convert::{TryConvertFrom, TryConvertFromParts},
+    utils::convert::TryConvertFrom,
 };
 
 fn foward_lazy<
@@ -68,7 +66,6 @@ pub fn generate_ternery_secret_with_hamming_weight<
     let mut secret_indices = (0..ring_size).into_iter().collect_vec();
     let mut bit_index = 0;
     let mut byte_index = 0;
-    dbg!(hamming_weight);
     for _ in 0..hamming_weight {
         let secret_index = rng.random_value_in_range(secret_indices.len());
 
@@ -103,7 +100,7 @@ pub fn simd_encode_message<
     parameters: &P,
 ) -> Vec<Scalar> {
     debug_assert!(
-        m.len() < parameters.ring_size(),
+        m.len() <= parameters.ring_size(),
         "Message length {} > ring size {}",
         m.len(),
         parameters.ring_size()
@@ -130,6 +127,9 @@ pub fn simd_decode_message<
     m: &[Scalar],
     parameters: &P,
 ) -> Vec<Scalar> {
+    let mut m = m.to_vec();
+    parameters.t_ntt_op().forward(&mut m);
+
     let matrix_representation_index = parameters.matrix_representation_index_map();
     let mut message = vec![Scalar::zero(); parameters.ring_size()];
     message
@@ -142,7 +142,7 @@ pub fn simd_decode_message<
 pub fn secret_key_encryption<
     'a,
     Scalar: 'a + UnsignedInteger,
-    Poly: MatrixMut<MatElement = Scalar> + Debug,
+    Poly: MatrixMut<MatElement = Scalar>,
     S: SecretKey<Scalar = i32>,
     P: BfvEncryptionParameters<Scalar = Scalar>,
     C: RlweCiphertext<Poly = Poly> + InitialiseLevelledCiphertext<C = Vec<Poly>>,
@@ -151,14 +151,14 @@ pub fn secret_key_encryption<
     secret: &'a S,
     message: &[Scalar],
     parameters: &'a P,
-    rng: &R,
+    rng: &mut R,
     level: usize,
 ) -> C
 where
     Poly: TryConvertFrom<&'a [i32], Parameters = &'a [Scalar]>,
     <Poly as Matrix>::R: RowMut,
 {
-    let q_size = level + 1;
+    let q_size = parameters.max_level() - level + 1;
     let ring_size = parameters.ring_size();
 
     // m(X)
@@ -169,17 +169,17 @@ where
     let q_modt = parameters.q_modt_at_level(level);
     modt.scalar_mul_mod_vec(&mut encoded_m, *q_modt);
 
-    // \Delta m = t^{-1}*[Qm(X)]_t \mod Q
+    // \Delta m = (-t^{-1}*[Qm(X)]_t) \mod Q
     let modq_ops = parameters.modq_ops_at_level(level);
     let mut m = <C::Poly>::zeros(q_size, ring_size);
     izip!(
         m.iter_rows_mut(),
-        parameters.t_inv_modqi_at_level(level).iter(),
+        parameters.neg_t_inv_modqi_at_level(level).iter(),
         modq_ops.iter()
     )
-    .for_each(|(row_i, t_inv_modqi, modqi)| {
+    .for_each(|(row_i, neg_t_inv_modqi, modqi)| {
         row_i.as_mut().copy_from_slice(&encoded_m);
-        modqi.scalar_mul_mod_vec(row_i.as_mut(), *t_inv_modqi);
+        modqi.scalar_mul_mod_vec(row_i.as_mut(), *neg_t_inv_modqi);
     });
 
     let q_moduli_chain = parameters.q_moduli_chain_at_level(level);
@@ -190,9 +190,10 @@ where
     let ntt_ops = parameters.basisq_ntt_ops_at_level(level);
     foward_lazy(&mut s, ntt_ops);
     foward_lazy(&mut a, ntt_ops);
-
     mul_lazy_mut(&mut s, &a, modq_ops);
+
     backward(&mut s, ntt_ops);
+    backward(&mut a, ntt_ops);
 
     // a*s + e
     let e = RandomGaussianDist::random_ring_poly(rng, q_moduli_chain, ring_size);
@@ -254,6 +255,7 @@ where
     backward(&mut c0, basisq_ntt_ops);
 
     let ring_size = parameters.ring_size();
+    let q_size = parameters.max_level() - level + 1;
     let mut t_out = C::Poly::zeros(1, ring_size);
     simple_scale_and_round(
         &mut t_out,
@@ -264,7 +266,7 @@ where
         parameters.beta_times_q_over_qi_inv_modqi_times_t_over_qi_fractional_at_level(level),
         parameters.log_beta(),
         parameters.modt_op(),
-        level + 1,
+        q_size,
         ring_size,
     );
     t_out
@@ -362,8 +364,8 @@ pub fn ciphertext_mul<
 
     // In BFV multiplication algorithm 2. Size of Q basis is assumed to equal
     // P basis
-    let q_size = level + 1;
-    let p_size = level + 1;
+    let q_size = parameters.max_level() - level + 1;
+    let p_size = parameters.max_level() - level + 1;
 
     let ring_size = parameters.ring_size();
 

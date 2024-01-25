@@ -1,15 +1,14 @@
 use std::{borrow::Borrow, cell::RefCell};
 
+use itertools::{izip, Itertools};
 use num_traits::Zero;
 use rand::{
-    distributions::uniform::SampleUniform, thread_rng, CryptoRng, Rng, RngCore, SeedableRng,
+    distributions::{uniform::SampleUniform, Uniform},
+    thread_rng, CryptoRng, Rng, RngCore, SeedableRng,
 };
 use rand_chacha::{ChaCha8Core, ChaCha8Rng};
 
-use super::{
-    matrix::{Matrix, MatrixMut, Row, RowMut},
-    num::UnsignedInteger,
-};
+use super::matrix::{Matrix, MatrixMut, RowMut};
 
 pub trait RandomSecretByteGenerator {
     fn random_bytes(&mut self, size: usize) -> Vec<u8>;
@@ -20,13 +19,13 @@ pub trait RandomSecretValueGenerator<T> {
 }
 
 pub trait RandomGaussianDist<S, P> {
-    fn random_vec_in_modulus(&self, modulus: S, size: usize) -> Vec<S>;
-    fn random_ring_poly(&self, moduli_chain: &[S], ring_size: usize) -> P;
+    fn random_vec_in_modulus(&mut self, modulus: S, size: usize) -> Vec<S>;
+    fn random_ring_poly(&mut self, moduli_chain: &[S], ring_size: usize) -> P;
 }
 
 pub trait RandomUniformDist<S, P> {
-    fn random_vec_in_modulus(&self, modulus: S, size: usize) -> Vec<S>;
-    fn random_ring_poly(&self, moduli_chain: &[S], ring_size: usize) -> P;
+    fn random_vec_in_modulus(&mut self, modulus: S, size: usize) -> Vec<S>;
+    fn random_ring_poly(&mut self, moduli_chain: &[S], ring_size: usize) -> P;
 }
 
 pub trait WithLocal {
@@ -96,20 +95,37 @@ impl<T: SampleUniform + PartialOrd + Zero> RandomSecretValueGenerator<T>
 }
 
 impl<P: Matrix> RandomGaussianDist<u64, P> for DefaultU64SeededRandomGenerator {
-    fn random_vec_in_modulus(&self, modulus: u64, size: usize) -> Vec<u64> {
+    fn random_vec_in_modulus(&mut self, modulus: u64, size: usize) -> Vec<u64> {
         vec![0u64; size]
     }
 
-    fn random_ring_poly(&self, moduli_chain: &[u64], ring_size: usize) -> P {
+    fn random_ring_poly(&mut self, moduli_chain: &[u64], ring_size: usize) -> P {
         P::zeros(moduli_chain.len(), ring_size)
     }
 }
-impl<P: Matrix> RandomUniformDist<u64, P> for DefaultU64SeededRandomGenerator {
-    fn random_ring_poly(&self, moduli_chain: &[u64], ring_size: usize) -> P {
-        P::zeros(moduli_chain.len(), ring_size)
+
+impl<P: Matrix<MatElement = u64> + MatrixMut> RandomUniformDist<u64, P>
+    for DefaultU64SeededRandomGenerator
+where
+    <P as Matrix>::R: RowMut,
+{
+    fn random_ring_poly(&mut self, moduli_chain: &[u64], ring_size: usize) -> P {
+        let rows = moduli_chain.len();
+        let mut poly = P::zeros(rows, ring_size);
+
+        izip!(poly.iter_rows_mut(), moduli_chain.iter()).for_each(|(r, qi)| {
+            izip!(
+                r.as_mut().iter_mut(),
+                (&mut self.rng).sample_iter(Uniform::new(0, *qi))
+            )
+            .for_each(|(r_el, random_el)| *r_el = random_el);
+        });
+
+        poly
     }
-    fn random_vec_in_modulus(&self, modulus: u64, size: usize) -> Vec<u64> {
+    fn random_vec_in_modulus(&mut self, modulus: u64, size: usize) -> Vec<u64> {
         vec![0u64; size]
     }
 }
+
 impl CryptoRng for DefaultU64SeededRandomGenerator {}
