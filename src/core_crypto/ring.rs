@@ -417,7 +417,7 @@ mod tests {
             random::RandomUniformDist,
         },
         utils::{
-            convert::TryConvertFromParts, mod_inverse, moduli_chain_to_biguint, test_utils::TestRng,
+            convert::{TryConvertFrom, TryConvertFromParts}, mod_inverse, moduli_chain_to_biguint, test_utils::TestRng,
         },
     };
 
@@ -488,8 +488,8 @@ mod tests {
             n,
         );
 
-        let poly_q_biguint = Vec::<BigUint>::try_convert_with_one_part(&poly_q_in, &q_chain);
-        let poly_p_biguint = Vec::<BigUint>::try_convert_with_one_part(&poly_p_out, &p_chain);
+        let poly_q_biguint = Vec::<BigUint>::try_convert_from(&poly_q_in, &q_chain);
+        let poly_p_biguint = Vec::<BigUint>::try_convert_from(&poly_p_out, &p_chain);
 
         let poly_p_biguint_expected = poly_q_biguint
             .iter()
@@ -585,8 +585,8 @@ mod tests {
             n,
         );
 
-        let poly_q_biguint = Vec::<BigUint>::try_convert_with_one_part(&poly_q_in, &q_chain);
-        let poly_p_biguint = Vec::<BigUint>::try_convert_with_one_part(&poly_p_out, &p_chain);
+        let poly_q_biguint = Vec::<BigUint>::try_convert_from(&poly_q_in, &q_chain);
+        let poly_p_biguint = Vec::<BigUint>::try_convert_from(&poly_p_out, &p_chain);
 
         let poly_p_biguint_expected = poly_q_biguint
             .iter()
@@ -678,8 +678,8 @@ mod tests {
             n,
         );
 
-        let poly_q_biguint = Vec::<BigUint>::try_convert_with_one_part(&poly_q_in, &q_chain);
-        let poly_t_biguint = Vec::<BigUint>::try_convert_with_one_part(&poly_t_out, &vec![t]);
+        let poly_q_biguint = Vec::<BigUint>::try_convert_from(&poly_q_in, &q_chain);
+        let poly_t_biguint = Vec::<BigUint>::try_convert_from(&poly_t_out, &vec![t]);
 
         let poly_t_biguint_expected = poly_q_biguint.iter().map(|xi| {
             if xi >= &(&big_q >> 1) {
@@ -801,7 +801,7 @@ mod tests {
             &q_chain,
             &p_chain,
         );
-        let poly_out_big = Vec::<BigUint>::try_convert_with_one_part(&poly_out, &q_chain);
+        let poly_out_big = Vec::<BigUint>::try_convert_from(&poly_out, &q_chain);
 
         // (t/P (x)) \mod{q} where x \in [0, qp)
         let poly_out_big_expected = poly_in_big.iter().map(|x| {
