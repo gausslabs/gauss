@@ -183,7 +183,7 @@ where
     });
 
     let q_moduli_chain = parameters.q_moduli_chain_at_level(level);
-    let mut s = <C::Poly>::try_convert_from(secret.values(), q_moduli_chain);
+    let mut s = <C::Poly>::try_convert_from(&secret.values(), &q_moduli_chain);
     let mut a = RandomUniformDist::random_ring_poly(rng, q_moduli_chain, ring_size);
 
     // a*s
@@ -228,7 +228,7 @@ where
 
     let q_moduli_chain = parameters.q_moduli_chain_at_level(level);
 
-    let mut s = C::Poly::try_convert_from(secret.values(), q_moduli_chain);
+    let mut s = C::Poly::try_convert_from(&secret.values(), &q_moduli_chain);
     foward_lazy(&mut s, basisq_ntt_ops);
 
     let mut c0 = c.c_partq()[0].clone();

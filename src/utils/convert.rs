@@ -8,27 +8,24 @@ use crate::core_crypto::{matrix::Matrix, num::UnsignedInteger};
 
 use super::{mod_inverse, moduli_chain_to_biguint};
 
-pub trait TryConvertFrom<T> {
-    type Parameters;
+pub trait TryConvertFrom<T:?Sized> {
+    type Parameters:?Sized;
 
-    fn try_convert_from(value: T, parameters: Self::Parameters) -> Self;
+    fn try_convert_from(value: &T, parameters: &Self::Parameters) -> Self;
 }
 
-pub trait TryConvertFromParts<T> {
-    type Parameters;
-
-    fn try_convert_with_one_part(value: T, parameters: Self::Parameters) -> Self;
+pub trait TryConvertFromParts<T> :TryConvertFrom<T>{
     fn try_convert_with_two_parts(
-        value_part0: T,
-        value_part1: T,
-        parameters_part0: Self::Parameters,
-        parameters_part1: Self::Parameters,
+        value_part0: &T,
+        value_part1: &T,
+        parameters_part0: &Self::Parameters,
+        parameters_part1: &Self::Parameters,
     ) -> Self;
 }
 
-impl<'a> TryConvertFrom<&'a [i32]> for Vec<Vec<u64>> {
-    type Parameters = &'a [u64];
-    fn try_convert_from(value: &'a [i32], parameters: Self::Parameters) -> Self {
+impl  TryConvertFrom<[i32]> for Vec<Vec<u64>> {
+    type Parameters = [u64];
+    fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self {
         parameters
             .iter()
             .map(|qi| {
@@ -49,9 +46,9 @@ impl<'a> TryConvertFrom<&'a [i32]> for Vec<Vec<u64>> {
     }
 }
 
-impl<'a> TryConvertFrom<&'a [BigUint]> for Vec<Vec<u64>> {
-    type Parameters = &'a [u64];
-    fn try_convert_from(value: &'a [BigUint], parameters: Self::Parameters) -> Self {
+impl TryConvertFrom<[BigUint]> for Vec<Vec<u64>> {
+    type Parameters = [u64];
+    fn try_convert_from(value: &[BigUint], parameters: &Self::Parameters) -> Self {
         parameters
             .iter()
             .map(|qi| {
@@ -64,13 +61,13 @@ impl<'a> TryConvertFrom<&'a [BigUint]> for Vec<Vec<u64>> {
     }
 }
 
-impl<'a, M> TryConvertFromParts<&'a M> for Vec<BigUint>
+impl<M> TryConvertFrom<M> for Vec<BigUint>
 where
     M: Matrix<MatElement = u64>,
 {
-    type Parameters = &'a [u64];
+    type Parameters = [u64];
 
-    fn try_convert_with_one_part(value: &M, parameters: Self::Parameters) -> Self {
+    fn try_convert_from(value: &M, parameters: &Self::Parameters) -> Self {
         let big_q = moduli_chain_to_biguint(parameters);
 
         // q/q_i
@@ -99,11 +96,18 @@ where
         out_biguint_coeffs
     }
 
+   
+}
+
+impl <M> TryConvertFromParts<M> for Vec<BigUint>
+where
+M: Matrix<MatElement = u64>,
+{
     fn try_convert_with_two_parts(
-        value_part0: &'a M,
-        value_part1: &'a M,
-        parameters_part0: Self::Parameters,
-        parameters_part1: Self::Parameters,
+        value_part0: &M,
+        value_part1: &M,
+        parameters_part0: &Self::Parameters,
+        parameters_part1: &Self::Parameters,
     ) -> Self {
         let big_q = moduli_chain_to_biguint(parameters_part0);
         let big_p = moduli_chain_to_biguint(parameters_part1);
@@ -164,8 +168,6 @@ where
 
 
 
-
-
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
@@ -195,10 +197,10 @@ mod tests {
 
         // decompose biguint poly into q_i's
         let poly_decomposed =
-            <Vec<Vec<u64>> as TryConvertFrom<&[BigUint]>>::try_convert_from(&poly_big, &q_chain);
+            <Vec<Vec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(&poly_big, &q_chain);
 
         // recompose decomposed poly into biguint
-        let poly_big_back = Vec::<BigUint>::try_convert_with_one_part(&poly_decomposed, &q_chain);
+        let poly_big_back = Vec::<BigUint>::try_convert_from(&poly_decomposed, &q_chain);
 
         assert_eq!(poly_big, poly_big_back);
     }
@@ -225,12 +227,12 @@ mod tests {
             .collect_vec();
 
         // decompose biguint poly into q_i's
-        let poly_decomposed_part0 = <Vec<Vec<u64>> as TryConvertFrom<&[BigUint]>>::try_convert_from(
-            poly_big.as_ref(),
+        let poly_decomposed_part0 = <Vec<Vec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(
+            &poly_big,
             &q_chain,
         );
-        let poly_decomposed_part1 = <Vec<Vec<u64>> as TryConvertFrom<&[BigUint]>>::try_convert_from(
-            poly_big.as_ref(),
+        let poly_decomposed_part1 = <Vec<Vec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(
+            &poly_big,
             &p_chain,
         );
 
