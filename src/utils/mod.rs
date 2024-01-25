@@ -1,5 +1,5 @@
-use num_bigint::{BigUint, ToBigUint};
-use num_traits::One;
+use num_bigint::{BigInt, BigUint, ToBigUint};
+use num_traits::{One, ToBytes};
 
 use crate::core_crypto::{
     modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend},
@@ -92,9 +92,9 @@ pub fn mod_exponent(a: u64, mut n: u64, q: u64) -> u64 {
 
     while n > 0 {
         if n & 1 == 1 {
-            a_n = modulus.mul_mod_fast(a_prod, a_n);
+            a_n = modulus.mul_mod_fast_lazy(a_prod, a_n);
         }
-        a_prod = modulus.mul_mod_fast(a_prod, a_prod);
+        a_prod = modulus.mul_mod_fast_lazy(a_prod, a_prod);
 
         n = n >> 1u32;
     }
@@ -110,7 +110,17 @@ pub fn mod_inverse(a: u64, q: u64) -> u64 {
 }
 
 pub fn mod_inverse_big_unit(a: &BigUint, b: &BigUint) -> BigUint {
-    todo!()
+    use num_bigint_dig::BigUint as BigUintDig;
+    use num_bigint_dig::ModInverse;
+
+    let a_dig = BigUintDig::from_bytes_le(&a.to_le_bytes());
+    let b_dig = BigUintDig::from_bytes_le(&b.to_le_bytes());
+    let inv = a_dig
+        .mod_inverse(&b_dig)
+        .expect("Modular inverse a^{-1} s.t. a * a^{-1} = 1 mod b does not exist")
+        .to_biguint()
+        .unwrap();
+    BigUint::from_bytes_le(&inv.to_bytes_le())
 }
 
 /// Extended GCD algorithm. The funciton calculates the GCD of a & b

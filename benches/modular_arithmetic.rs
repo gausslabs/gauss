@@ -28,7 +28,7 @@ fn bench_barrett_sub(modulus_backend: &NativeModulusBackend, a: &u64, b: &u64) {
 }
 
 fn bench_barrett_mul(modulus_backend: &NativeModulusBackend, a: &u64, b: &u64) {
-    modulus_backend.mul_mod_fast(*a, *b);
+    modulus_backend.mul_mod_fast_lazy(*a, *b);
 }
 
 // Montgomery Arithmetic

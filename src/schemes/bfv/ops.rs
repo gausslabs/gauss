@@ -1,16 +1,20 @@
-use std::task::Poll;
+use std::{fmt::Debug, task::Poll};
 
-use itertools::izip;
-use rand::{CryptoRng, RngCore};
+use itertools::{izip, Itertools};
+use num_traits::Signed;
+use rand::{distributions::uniform::SampleBorrow, CryptoRng, RngCore};
 
 use crate::{
-    ciphertext::{BfvCiphertext, Ciphertext, InitialiseLevelledCiphertext, Representation},
+    ciphertext::{Ciphertext, InitialiseLevelledCiphertext, Representation, RlweCiphertext},
     core_crypto::{
         matrix::{Matrix, MatrixMut, RowMut},
         modulus::ModulusVecBackend,
         ntt::Ntt,
         num::UnsignedInteger,
-        random::{RandomGaussianDist, RandomUniformDist},
+        random::{
+            RandomGaussianDist, RandomSecretByteGenerator, RandomSecretValueGenerator,
+            RandomUniformDist,
+        },
         ring::{
             self, add_lazy_mut, add_mut, fast_convert_p_over_q, mul_lazy_mut, neg_mut,
             scale_and_round, simple_scale_and_round, switch_crt_basis,
@@ -50,6 +54,47 @@ fn backward<
     izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.backward(r.as_mut()));
 }
 
+pub fn generate_ternery_secret_with_hamming_weight<
+    Scalar: Signed + Clone,
+    R: RandomSecretByteGenerator + RandomSecretValueGenerator<usize>,
+>(
+    rng: &mut R,
+    hamming_weight: usize,
+    ring_size: usize,
+) -> Vec<Scalar> {
+    let mut bytes = rng.random_bytes(hamming_weight.div_ceil(8));
+
+    let mut secret = vec![Scalar::zero(); ring_size];
+    let mut secret_indices = (0..ring_size).into_iter().collect_vec();
+    let mut bit_index = 0;
+    let mut byte_index = 0;
+    dbg!(hamming_weight);
+    for _ in 0..hamming_weight {
+        let secret_index = rng.random_value_in_range(secret_indices.len());
+
+        if bytes[byte_index] & 1u8 == 1 {
+            secret[secret_indices[secret_index]] = Scalar::one();
+        } else {
+            secret[secret_indices[secret_index]] = Scalar::neg(Scalar::one());
+        }
+
+        bytes[byte_index] >>= 1;
+
+        // remove secret_index from secret_indices
+        secret_indices[secret_index] = *secret_indices.last().unwrap();
+        secret_indices.truncate(secret_indices.len() - 1);
+
+        if bit_index == 7 {
+            bit_index = 0;
+            byte_index += 1;
+        } else {
+            bit_index += 1;
+        }
+    }
+
+    secret
+}
+
 pub fn simd_encode_message<
     Scalar: UnsignedInteger,
     P: BfvEncodingDecodingParameters<Scalar = Scalar>,
@@ -58,7 +103,7 @@ pub fn simd_encode_message<
     parameters: &P,
 ) -> Vec<Scalar> {
     debug_assert!(
-        m.len() > parameters.ring_size(),
+        m.len() < parameters.ring_size(),
         "Message length {} > ring size {}",
         m.len(),
         parameters.ring_size()
@@ -78,13 +123,29 @@ pub fn simd_encode_message<
     message
 }
 
+pub fn simd_decode_message<
+    Scalar: UnsignedInteger,
+    P: BfvEncodingDecodingParameters<Scalar = Scalar>,
+>(
+    m: &[Scalar],
+    parameters: &P,
+) -> Vec<Scalar> {
+    let matrix_representation_index = parameters.matrix_representation_index_map();
+    let mut message = vec![Scalar::zero(); parameters.ring_size()];
+    message
+        .iter_mut()
+        .enumerate()
+        .for_each(|(index, v)| *v = m[matrix_representation_index[index]]);
+    message
+}
+
 pub fn secret_key_encryption<
     'a,
     Scalar: 'a + UnsignedInteger,
-    Poly: MatrixMut<MatElement = Scalar>,
+    Poly: MatrixMut<MatElement = Scalar> + Debug,
     S: SecretKey<Scalar = i32>,
     P: BfvEncryptionParameters<Scalar = Scalar>,
-    C: BfvCiphertext<Poly = Poly> + InitialiseLevelledCiphertext<C = Vec<Poly>>,
+    C: RlweCiphertext<Poly = Poly> + InitialiseLevelledCiphertext<C = Vec<Poly>>,
     R: RandomUniformDist<Scalar, Poly> + RandomGaussianDist<Scalar, Poly> + CryptoRng,
 >(
     secret: &'a S,
@@ -129,6 +190,7 @@ where
     let ntt_ops = parameters.basisq_ntt_ops_at_level(level);
     foward_lazy(&mut s, ntt_ops);
     foward_lazy(&mut a, ntt_ops);
+
     mul_lazy_mut(&mut s, &a, modq_ops);
     backward(&mut s, ntt_ops);
 
@@ -148,14 +210,15 @@ where
 
 pub fn secret_key_decryption<
     'a,
-    C: BfvCiphertext<Scalar = u64>,
+    C: RlweCiphertext<Scalar = u64>,
     P: BfvDecryptionParameters<Scalar = u64>,
     S: SecretKey<Scalar = i32>,
 >(
     c: &C,
     secret: &'a S,
     parameters: &'a P,
-) where
+) -> C::Poly
+where
     <C as Ciphertext>::Poly: Clone + TryConvertFrom<&'a [i32], Parameters = &'a [u64]>,
 {
     let level = c.level();
@@ -204,11 +267,12 @@ pub fn secret_key_decryption<
         level + 1,
         ring_size,
     );
+    t_out
 }
 
 pub fn ciphertext_add<
     Scalar: UnsignedInteger,
-    C: BfvCiphertext<Scalar = Scalar>,
+    C: RlweCiphertext<Scalar = Scalar>,
     P: PolyModulusOpParameters<Scalar = Scalar>,
 >(
     c0: &mut C,
@@ -237,7 +301,7 @@ pub fn ciphertext_add<
 
 pub fn ciphertext_sub<
     Scalar: UnsignedInteger,
-    C: BfvCiphertext<Scalar = Scalar>,
+    C: RlweCiphertext<Scalar = Scalar>,
     P: PolyModulusOpParameters<Scalar = Scalar>,
 >(
     c0: &mut C,
@@ -265,7 +329,7 @@ pub fn ciphertext_sub<
 }
 
 pub fn ciphertext_mul<
-    C: BfvCiphertext<Scalar = u64>,
+    C: RlweCiphertext<Scalar = u64>,
     P: PolyModulusOpParameters<Scalar = u64>
         + BfvMultiplicationAlgorithm2Parameters<Scalar = u64>
         + PolyNttOpParameters<Scalar = u64>,

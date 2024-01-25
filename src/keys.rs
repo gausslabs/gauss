@@ -7,10 +7,6 @@ pub trait SecretKey {
     fn values(&self) -> &[Self::Scalar];
 }
 
-pub trait SecretWithHammingWeight: SecretKey {
-    fn new_with_hamming_weight(hw: usize, ring_size: usize) -> Self;
-}
-
 pub trait Encryptor<M, C> {
     fn encrypt(&self, message: M) -> C;
 }

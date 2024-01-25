@@ -1,3 +1,5 @@
+use std::iter::Scan;
+
 use super::UnsignedInteger;
 use num_traits::{AsPrimitive, PrimInt};
 
@@ -20,6 +22,8 @@ where
 
     fn modulus(&self) -> Scalar;
 
+    fn modulus_twice(&self) -> Scalar;
+
     fn modulus_bits(&self) -> usize;
 
     fn barrett_constant(&self) -> Scalar;
@@ -33,7 +37,7 @@ where
 
     /// Barrett modular multiplication with pre-compute constant \mu
     ///
-    /// Both a and b are < 2q.
+    /// Both a and b are < 2q and out is in < 2q
     ///
     /// We implement the generalized barrett reduction
     /// formula described as Algorithm 2 of the this [paper](https://homes.esat.kuleuven.be/~fvercaut/papers/bar_mont.pdf).
@@ -44,16 +48,16 @@ where
     /// * [Implementation reference](https://github.com/openfheorg/openfhe-development/blob/c48c41cf7893feb94f09c7d95284a36145ec0d5e/src/core/include/math/hal/intnat/ubintnat.h#L1417)
     /// * Note 1: It is possible to do the same without using `ScalarDoubled`
     ///   (i.e. without u128s in case of u64s).
-    fn mul_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
+    fn mul_mod_fast_lazy(&self, a: Scalar, b: Scalar) -> Scalar {
         debug_assert!(
-            a < (self.modulus() * (Scalar::one() + Scalar::one() + Scalar::one() + Scalar::one())),
-            "Input {a} >= (2*modulus){}",
-            self.modulus()
+            a < self.modulus_twice(),
+            "Input {a} > (2*modulus){}",
+            self.modulus_twice()
         );
         debug_assert!(
-            b < (self.modulus() * (Scalar::one() + Scalar::one() + Scalar::one() + Scalar::one())),
-            "Input {b} >= (2*modulus){}",
-            self.modulus()
+            b < self.modulus_twice(),
+            "Input {b} > (2*modulus){}",
+            self.modulus_twice()
         );
 
         // a*b
@@ -69,12 +73,19 @@ where
 
         // ab - q*p
         let tmp = q * self.modulus().as_();
-        let mut res = (ab - tmp).as_();
+        let res = (ab - tmp).as_();
 
+        res
+    }
+
+    /// Barrett modular multiplication
+    ///
+    /// Inputs are in range [0, 2q] and output is in range [0, q]
+    fn mul_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
+        let mut res = self.mul_mod_fast_lazy(a, b);
         if res >= self.modulus() {
             res -= self.modulus();
         }
-
         res
     }
 }

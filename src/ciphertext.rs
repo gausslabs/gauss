@@ -27,13 +27,13 @@ pub trait InitialiseLevelledCiphertext {
     fn new(c: Self::C, level: usize, representation: Representation) -> Self;
 }
 
-pub trait BfvCiphertext: Ciphertext {
+pub trait RlweCiphertext: Ciphertext {
     fn c_partq(&self) -> &[Self::Poly];
     fn c_partq_mut(&mut self) -> &mut [Self::Poly];
     fn level(&self) -> usize;
 }
 
-pub trait ExtendedBfvCiphertext: BfvCiphertext {
+pub trait ExtendedRlweCiphertext: RlweCiphertext {
     fn c_partp(&self) -> &[Self::Poly];
 }
 

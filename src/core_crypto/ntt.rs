@@ -1,4 +1,4 @@
-use itertools::Itertools;
+use itertools::{izip, Itertools};
 use rand::thread_rng;
 
 use crate::{core_crypto::modulus::ShoupRepresentationFq, utils::mod_inverse};
@@ -244,6 +244,17 @@ impl NttConfig for NativeNTTBackend {
     }
 }
 
+impl NativeNTTBackend {
+    fn reduce_lazy(&self, a: &mut [u64]) {
+        a.iter_mut().for_each(|a0| {
+            let q = self.q;
+            if *a0 > q {
+                *a0 = *a0 - q;
+            }
+        });
+    }
+}
+
 impl Ntt for NativeNTTBackend {
     fn forward(&self, a: &mut [Self::Scalar]) {
         ntt_lazy(
@@ -253,8 +264,7 @@ impl Ntt for NativeNTTBackend {
             self.q,
             self.q_twice,
         );
-        // TODO (Jay) reduce output to range [0, q)
-        todo!()
+        self.reduce_lazy(a);
     }
 
     fn backward(&self, a: &mut [Self::Scalar]) {
@@ -266,8 +276,7 @@ impl Ntt for NativeNTTBackend {
             self.q,
             self.q_twice,
         );
-        // TODO (Jay) reduce output to range [0, q)
-        todo!()
+        self.reduce_lazy(a);
     }
 
     fn forward_lazy(&self, a: &mut [Self::Scalar]) {
@@ -311,7 +320,22 @@ mod tests {
 
             ntt_backend.forward(&mut a);
             assert_ne!(a, a_clone);
+            ntt_backend.backward(&mut a);
+            assert_eq!(a, a_clone);
+
             ntt_backend.forward_lazy(&mut a);
+            assert_ne!(a, a_clone);
+            ntt_backend.backward(&mut a);
+            assert_eq!(a, a_clone);
+
+            ntt_backend.forward(&mut a);
+            ntt_backend.backward_lazy(&mut a);
+            // reduce
+            a.iter_mut().for_each(|a0| {
+                if *a0 > Q_60_BITS {
+                    *a0 -= *a0 - Q_60_BITS;
+                }
+            });
             assert_eq!(a, a_clone);
         }
     }

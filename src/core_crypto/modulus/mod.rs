@@ -22,8 +22,8 @@ pub trait ModulusArithmeticBackend<Scalar: UnsignedInteger> {
 
     fn neg_mod_fast(&self, a: Scalar) -> Scalar {
         debug_assert!(
-            a < self.modulus(),
-            "Input {a} >= (modulus){}",
+            a <= self.modulus(),
+            "Input {a} > (modulus){}",
             self.modulus()
         );
 
@@ -32,13 +32,13 @@ pub trait ModulusArithmeticBackend<Scalar: UnsignedInteger> {
 
     fn add_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
         debug_assert!(
-            a < self.modulus(),
-            "Input {a} >= (modulus){}",
+            a <= self.modulus(),
+            "Input {a} > (modulus){}",
             self.modulus()
         );
         debug_assert!(
-            b < self.modulus(),
-            "Input {b} >= (modulus){}",
+            b <= self.modulus(),
+            "Input {b} > (modulus){}",
             self.modulus()
         );
 
@@ -54,13 +54,13 @@ pub trait ModulusArithmeticBackend<Scalar: UnsignedInteger> {
     /// Output is in range [0, 2q)
     fn add_lazy_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
         debug_assert!(
-            a < self.modulus(),
-            "Input {a} >= (2*modulus){}",
+            a <= self.twice_modulus(),
+            "Input {a} > (2*modulus){}",
             self.twice_modulus()
         );
         debug_assert!(
-            b < self.modulus(),
-            "Input {b} >= (2*modulus){}",
+            b <= self.twice_modulus(),
+            "Input {b} > (2*modulus){}",
             self.twice_modulus()
         );
 

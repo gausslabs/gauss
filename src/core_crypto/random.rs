@@ -1,6 +1,9 @@
 use std::{borrow::Borrow, cell::RefCell};
 
-use rand::{thread_rng, CryptoRng, RngCore, SeedableRng};
+use num_traits::Zero;
+use rand::{
+    distributions::uniform::SampleUniform, thread_rng, CryptoRng, Rng, RngCore, SeedableRng,
+};
 use rand_chacha::{ChaCha8Core, ChaCha8Rng};
 
 use super::{
@@ -8,7 +11,13 @@ use super::{
     num::UnsignedInteger,
 };
 
-pub trait RandomSecret {}
+pub trait RandomSecretByteGenerator {
+    fn random_bytes(&mut self, size: usize) -> Vec<u8>;
+}
+
+pub trait RandomSecretValueGenerator<T> {
+    fn random_value_in_range(&mut self, range: T) -> T;
+}
 
 pub trait RandomGaussianDist<S, P> {
     fn random_vec_in_modulus(&self, modulus: S, size: usize) -> Vec<S>;
@@ -70,7 +79,22 @@ impl DefaultU64SeededRandomGenerator {
     }
 }
 
-impl RandomSecret for DefaultU64SeededRandomGenerator {}
+impl RandomSecretByteGenerator for DefaultU64SeededRandomGenerator {
+    fn random_bytes(&mut self, size: usize) -> Vec<u8> {
+        let mut bytes = vec![0u8; size];
+        self.rng.fill_bytes(&mut bytes);
+        bytes
+    }
+}
+
+impl<T: SampleUniform + PartialOrd + Zero> RandomSecretValueGenerator<T>
+    for DefaultU64SeededRandomGenerator
+{
+    fn random_value_in_range(&mut self, range: T) -> T {
+        self.rng.gen_range(T::zero()..range)
+    }
+}
+
 impl<P: Matrix> RandomGaussianDist<u64, P> for DefaultU64SeededRandomGenerator {
     fn random_vec_in_modulus(&self, modulus: u64, size: usize) -> Vec<u64> {
         vec![0u64; size]

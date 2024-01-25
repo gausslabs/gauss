@@ -312,7 +312,7 @@ pub fn scale_and_round<
         let mut sum_fractional = 0.5f64;
         p_in.get_col_iter(ri).enumerate().for_each(|(j, px_j)| {
             // px_j * \theta_j
-            // TODO (Jay): This will likely result in low precision. A better will be to
+            // TODO (Jay): This will likely result in low precision. A better way is to
             // split fractional into fractional high and fractional low
             sum_fractional += (*px_j as f64) * qp_over_pj_inv_modpj_times_tq_fractional[j];
         });

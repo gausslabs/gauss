@@ -53,6 +53,10 @@ impl BarrettBackend<u64, u128> for NativeModulusBackend {
         self.modulus
     }
     #[inline]
+    fn modulus_twice(&self) -> u64 {
+        self.twice_modulus
+    }
+    #[inline]
     fn modulus_bits(&self) -> usize {
         self.modulus_bits
     }
@@ -123,19 +127,19 @@ impl ModulusVecBackend<u64> for NativeModulusBackend {
 
     fn mul_lazy_mod_vec(&self, a: &mut [u64], b: &[u64]) {
         izip!(a.iter_mut(), b.iter()).for_each(|(a0, b0)| {
-            *a0 = self.mul_mod_fast(*a0, *b0);
+            *a0 = self.mul_mod_fast_lazy(*a0, *b0);
         })
     }
 
     fn add_lazy_mod_vec(&self, a: &mut [u64], b: &[u64]) {
         izip!(a.iter_mut(), b.iter()).for_each(|(a0, b0)| {
-            *a0 = self.add_mod_fast(*a0, *b0);
+            *a0 = self.add_lazy_mod_fast(*a0, *b0);
         })
     }
 
     fn scalar_mul_mod_vec(&self, a: &mut [u64], b: u64) {
         a.iter_mut().for_each(|a0| {
-            *a0 = self.mul_mod_fast(*a0, b);
+            *a0 = self.mul_mod_fast_lazy(*a0, b);
         })
     }
 }
@@ -196,6 +200,8 @@ mod tests {
             let c = modulus_backend.sub_mod_fast(a, b);
             let c_expected = if a > b { a - b } else { p - (b - a) };
             assert_eq!(c, c_expected);
+
+            //TODO(Jay): Add tests for neg_mod_fast and barrett reduce
 
             // Case when a,b < 2p
             let a = rng.gen_range(0..(2 * p));

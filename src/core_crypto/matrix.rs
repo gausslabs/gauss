@@ -1,4 +1,5 @@
 use aligned_vec::{avec, AVec};
+use itertools::Itertools;
 
 use crate::core_crypto::num::UnsignedInteger;
 
@@ -61,6 +62,18 @@ where
         column_idx: usize,
     ) -> &mut <Self as Matrix>::MatElement {
         &mut self.as_mut()[row_idx].as_mut()[column_idx]
+    }
+}
+
+pub trait Drop2Dimension: Matrix {
+    /// Drop 2 dimensionality of matrix and reduces it self to a single row
+    /// vector
+    fn drop(self) -> Vec<Self::MatElement>;
+}
+
+impl<T: UnsignedInteger> Drop2Dimension for Vec<Vec<T>> {
+    fn drop(self) -> Self::R {
+        self.into_iter().flatten().collect_vec()
     }
 }
 
