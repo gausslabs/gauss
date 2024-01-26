@@ -165,6 +165,14 @@ pub fn extended_gcd(mut a: i64, mut b: i64) -> (i64, i64, i64) {
     (r1, old_x, old_y)
 }
 
+pub fn get_bit_at(input: i64, n: u8) -> bool {
+    if n < 64 {
+        input & (1 << n) != 0
+    } else {
+        false
+    }
+}
+
 pub fn moduli_chain_to_biguint<T: UnsignedInteger>(moduli_chain: &[T]) -> BigUint
 where
     BigUint: From<T>,
