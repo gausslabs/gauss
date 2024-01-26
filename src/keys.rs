@@ -7,8 +7,8 @@ pub trait SecretKey {
     fn values(&self) -> &[Self::Scalar];
 }
 
-pub trait Encryptor<M, C> {
-    fn encrypt(&self, message: M) -> C;
+pub trait Encryptor<M:?Sized, C> {
+    fn encrypt(&self, message: &M) -> C;
 }
 
 pub trait Decryptor<M, C> {

@@ -140,22 +140,22 @@ pub fn simd_decode_message<
 }
 
 pub fn secret_key_encryption<
-    'a,
-    Scalar: 'a + UnsignedInteger,
+    
+    Scalar: UnsignedInteger,
     Poly: MatrixMut<MatElement = Scalar>,
     S: SecretKey<Scalar = i32>,
     P: BfvEncryptionParameters<Scalar = Scalar>,
     C: RlweCiphertext<Poly = Poly> + InitialiseLevelledCiphertext<C = Vec<Poly>>,
     R: RandomUniformDist<Scalar, Poly> + RandomGaussianDist<Scalar, Poly> + CryptoRng,
 >(
-    secret: &'a S,
+    secret: &S,
     message: &[Scalar],
-    parameters: &'a P,
+    parameters: &P,
     rng: &mut R,
     level: usize,
 ) -> C
 where
-    Poly: TryConvertFrom<&'a [i32], Parameters = &'a [Scalar]>,
+    Poly: TryConvertFrom<[i32], Parameters = [Scalar]>,
     <Poly as Matrix>::R: RowMut,
 {
     let q_size = parameters.max_level() - level + 1;
@@ -183,7 +183,7 @@ where
     });
 
     let q_moduli_chain = parameters.q_moduli_chain_at_level(level);
-    let mut s = <C::Poly>::try_convert_from(secret.values(), q_moduli_chain);
+    let mut s = <C::Poly>::try_convert_from(&secret.values(), &q_moduli_chain);
     let mut a = RandomUniformDist::random_ring_poly(rng, q_moduli_chain, ring_size);
 
     // a*s
@@ -210,17 +210,16 @@ where
 }
 
 pub fn secret_key_decryption<
-    'a,
     C: RlweCiphertext<Scalar = u64>,
     P: BfvDecryptionParameters<Scalar = u64>,
     S: SecretKey<Scalar = i32>,
 >(
     c: &C,
-    secret: &'a S,
-    parameters: &'a P,
+    secret: &S,
+    parameters: &P,
 ) -> C::Poly
 where
-    <C as Ciphertext>::Poly: Clone + TryConvertFrom<&'a [i32], Parameters = &'a [u64]>,
+    <C as Ciphertext>::Poly: Clone + TryConvertFrom<[i32], Parameters = [u64]>,
 {
     let level = c.level();
 
@@ -228,7 +227,7 @@ where
 
     let q_moduli_chain = parameters.q_moduli_chain_at_level(level);
 
-    let mut s = C::Poly::try_convert_from(secret.values(), q_moduli_chain);
+    let mut s = C::Poly::try_convert_from(&secret.values(), &q_moduli_chain);
     foward_lazy(&mut s, basisq_ntt_ops);
 
     let mut c0 = c.c_partq()[0].clone();

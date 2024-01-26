@@ -61,9 +61,9 @@ impl BfvSecretKey {
     }
 }
 
-impl<P> Encryptor<&[u64], BfvCiphertextScalarU64GenericStorage<P>> for BfvSecretKey
+impl<P> Encryptor<[u64], BfvCiphertextScalarU64GenericStorage<P>> for BfvSecretKey
 where
-    P: for<'a> TryConvertFrom<&'a [i32], Parameters = &'a [u64]> + MatrixMut<MatElement = u64>,
+    P: TryConvertFrom <[i32], Parameters = [u64]> + MatrixMut<MatElement = u64>,
     <P as Matrix>::R: RowMut,
 {
     fn encrypt(&self, message: &[u64]) -> BfvCiphertextScalarU64GenericStorage<P> {
@@ -81,7 +81,7 @@ where
     P: Matrix<MatElement = u64>
         + MatrixMut
         + Drop2Dimension
-        + for<'a> TryConvertFrom<&'a [i32], Parameters = &'a [u64]>
+        + TryConvertFrom<[i32], Parameters = [u64]>
         + Clone,
     <P as Matrix>::R: RowMut,
 {
