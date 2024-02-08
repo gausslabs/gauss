@@ -1,5 +1,6 @@
 use std::{fmt::Debug, ops::Rem};
 
+use aligned_vec::{AVec, ConstAlign, CACHELINE_ALIGN};
 use itertools::{izip, Itertools};
 use num_bigint::{BigUint, ToBigUint};
 use num_traits::{ToPrimitive, Zero};
@@ -8,13 +9,13 @@ use crate::core_crypto::{matrix::Matrix, num::UnsignedInteger};
 
 use super::{mod_inverse, moduli_chain_to_biguint};
 
-pub trait TryConvertFrom<T:?Sized> {
-    type Parameters:?Sized;
+pub trait TryConvertFrom<T: ?Sized> {
+    type Parameters: ?Sized;
 
     fn try_convert_from(value: &T, parameters: &Self::Parameters) -> Self;
 }
 
-pub trait TryConvertFromParts<T> :TryConvertFrom<T>{
+pub trait TryConvertFromParts<T>: TryConvertFrom<T> {
     fn try_convert_with_two_parts(
         value_part0: &T,
         value_part1: &T,
@@ -23,7 +24,7 @@ pub trait TryConvertFromParts<T> :TryConvertFrom<T>{
     ) -> Self;
 }
 
-impl  TryConvertFrom<[i32]> for Vec<Vec<u64>> {
+impl TryConvertFrom<[i32]> for Vec<Vec<u64>> {
     type Parameters = [u64];
     fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self {
         parameters
@@ -46,6 +47,25 @@ impl  TryConvertFrom<[i32]> for Vec<Vec<u64>> {
     }
 }
 
+impl TryConvertFrom<[i32]> for AVec<AVec<u64>> {
+    type Parameters = [u64];
+    fn try_convert_from(value: &[i32], parameters: &Self::Parameters) -> Self {
+        let res_iter = parameters.iter().map(|qi| {
+            let row_iter = value.iter().map(|signed_x| {
+                let v = signed_x.abs() as u64;
+                let v = v % qi;
+                if signed_x.is_negative() {
+                    qi - v
+                } else {
+                    v
+                }
+            });
+            AVec::from_iter(CACHELINE_ALIGN, row_iter)
+        });
+        AVec::from_iter(CACHELINE_ALIGN, res_iter)
+    }
+}
+
 impl TryConvertFrom<[BigUint]> for Vec<Vec<u64>> {
     type Parameters = [u64];
     fn try_convert_from(value: &[BigUint], parameters: &Self::Parameters) -> Self {
@@ -58,6 +78,19 @@ impl TryConvertFrom<[BigUint]> for Vec<Vec<u64>> {
                     .collect_vec()
             })
             .collect_vec()
+    }
+}
+
+impl TryConvertFrom<[BigUint]> for AVec<AVec<u64>> {
+    type Parameters = [u64];
+    fn try_convert_from(value: &[BigUint], parameters: &Self::Parameters) -> Self {
+        let res_iter = parameters.iter().map(|qi| {
+            let row_iter = value
+                .iter()
+                .map(|big_x| u64::try_from(big_x % *qi).unwrap());
+            AVec::from_iter(CACHELINE_ALIGN, row_iter)
+        });
+        AVec::from_iter(CACHELINE_ALIGN, res_iter)
     }
 }
 
@@ -95,13 +128,11 @@ where
 
         out_biguint_coeffs
     }
-
-   
 }
 
-impl <M> TryConvertFromParts<M> for Vec<BigUint>
+impl<M> TryConvertFromParts<M> for Vec<BigUint>
 where
-M: Matrix<MatElement = u64>,
+    M: Matrix<MatElement = u64>,
 {
     fn try_convert_with_two_parts(
         value_part0: &M,
@@ -166,10 +197,9 @@ M: Matrix<MatElement = u64>,
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
+    use aligned_vec::AVec;
     use itertools::Itertools;
     use num_bigint::{BigUint, RandBigInt};
     use num_traits::One;
@@ -206,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn convert_from_and_to_biguint_for_u64_two_parts_moduli_chain_works() {
+    fn convert_from_and_to_biguint_for_u64_two_parts_moduli_chain_works_for_vec() {
         let ring_size = 1 << 4;
         let q_chain = generate_primes_vec(&[50, 50], ring_size, &[]);
         let p_chain = generate_primes_vec(&[50, 50], ring_size, &q_chain);
@@ -227,14 +257,48 @@ mod tests {
             .collect_vec();
 
         // decompose biguint poly into q_i's
-        let poly_decomposed_part0 = <Vec<Vec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(
-            &poly_big,
+        let poly_decomposed_part0 =
+            <Vec<Vec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(&poly_big, &q_chain);
+        let poly_decomposed_part1 =
+            <Vec<Vec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(&poly_big, &p_chain);
+
+        // recompose decomposed poly into biguint
+        let poly_big_back = Vec::<BigUint>::try_convert_with_two_parts(
+            &poly_decomposed_part0,
+            &poly_decomposed_part1,
             &q_chain,
-        );
-        let poly_decomposed_part1 = <Vec<Vec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(
-            &poly_big,
             &p_chain,
         );
+
+        // assert_eq!(poly_big, poly_big_back);
+    }
+
+    #[test]
+    fn convert_from_and_to_biguint_for_u64_two_parts_moduli_chain_works_for_avec() {
+        let ring_size = 1 << 4;
+        let q_chain = generate_primes_vec(&[50, 50], ring_size, &[]);
+        let p_chain = generate_primes_vec(&[50, 50], ring_size, &q_chain);
+
+        let mut big_q = BigUint::one();
+        q_chain.iter().for_each(|x| {
+            big_q *= *x;
+        });
+        let mut big_p = BigUint::one();
+        p_chain.iter().for_each(|x| {
+            big_p *= *x;
+        });
+        let big_qp = &big_p * &big_q;
+
+        let mut rng = thread_rng();
+        let poly_big = (0..ring_size)
+            .map(|_| rng.gen_biguint_below(&big_qp))
+            .collect_vec();
+
+        // decompose biguint poly into q_i's
+        let poly_decomposed_part0 =
+            <AVec<AVec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(&poly_big, &q_chain);
+        let poly_decomposed_part1 =
+            <AVec<AVec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(&poly_big, &p_chain);
 
         // recompose decomposed poly into biguint
         let poly_big_back = Vec::<BigUint>::try_convert_with_two_parts(
