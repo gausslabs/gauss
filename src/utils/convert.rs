@@ -199,6 +199,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use aligned_vec::AVec;
     use itertools::Itertools;
     use num_bigint::{BigUint, RandBigInt};
     use num_traits::One;
@@ -295,9 +296,9 @@ mod tests {
 
         // decompose biguint poly into q_i's
         let poly_decomposed_part0 =
-            <Vec<Vec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(&poly_big, &q_chain);
+            <AVec<AVec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(&poly_big, &q_chain);
         let poly_decomposed_part1 =
-            <Vec<Vec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(&poly_big, &p_chain);
+            <AVec<AVec<u64>> as TryConvertFrom<[BigUint]>>::try_convert_from(&poly_big, &p_chain);
 
         // recompose decomposed poly into biguint
         let poly_big_back = Vec::<BigUint>::try_convert_with_two_parts(
