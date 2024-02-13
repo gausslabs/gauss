@@ -6,7 +6,7 @@ use rand::{
     distributions::{uniform::SampleUniform, Uniform},
     thread_rng, CryptoRng, Rng, RngCore, SeedableRng,
 };
-use rand_chacha::{ChaCha8Core, ChaCha8Rng};
+use rand_chacha::ChaCha8Rng;
 
 use super::matrix::{Matrix, MatrixMut, RowMut};
 
@@ -23,12 +23,18 @@ pub trait RandomSeed {
     fn random_seed(&mut self) -> Self::Seed;
 }
 
-pub trait RandomGaussianDist<M> {
+pub trait RandomGaussianDist<M>
+where
+    M: ?Sized,
+{
     type Parameters: ?Sized;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut M);
 }
 
-pub trait RandomUniformDist<M> {
+pub trait RandomUniformDist<M>
+where
+    M: ?Sized,
+{
     type Parameters: ?Sized;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut M);
 }
@@ -135,6 +141,17 @@ where
     }
 }
 
+impl RandomUniformDist<[u64]> for DefaultU64SeededRandomGenerator {
+    type Parameters = u64;
+    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u64]) {
+        izip!(
+            container.as_mut().iter_mut(),
+            (&mut self.rng).sample_iter(Uniform::new(0, *parameters))
+        )
+        .for_each(|(r_el, random_el)| *r_el = random_el);
+    }
+}
+
 impl<M: MatrixMut<MatElement = u64>> RandomGaussianDist<M> for DefaultU64SeededRandomGenerator
 where
     <M as Matrix>::R: RowMut,
@@ -155,6 +172,17 @@ where
         //     )
         //     .for_each(|(r_el, random_el)| *r_el = random_el);
         // });
+    }
+}
+
+impl RandomGaussianDist<[u64]> for DefaultU64SeededRandomGenerator {
+    type Parameters = u64;
+    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u64]) {
+        // izip!(
+        //     container.as_mut().iter_mut(),
+        //     (&mut self.rng).sample_iter(Uniform::new(0, *parameters))
+        // )
+        // .for_each(|(r_el, random_el)| *r_el = random_el);
     }
 }
 

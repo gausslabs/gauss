@@ -4,10 +4,38 @@ use super::{
         BarrettBackend, ModulusArithmeticBackend, ModulusVecBackend, MontgomeryBackend,
         MontgomeryScalar,
     },
+    ntt::Ntt,
     num::UnsignedInteger,
 };
 use itertools::{izip, Itertools};
 
+pub fn foward_lazy<
+    Scalar: UnsignedInteger,
+    M: MatrixMut<MatElement = Scalar>,
+    N: Ntt<Scalar = Scalar>,
+>(
+    p: &mut M,
+    ntt_ops: &[N],
+) where
+    <M as Matrix>::R: RowMut,
+{
+    izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.forward_lazy(r.as_mut()));
+}
+
+pub fn backward<
+    Scalar: UnsignedInteger,
+    M: MatrixMut<MatElement = Scalar>,
+    N: Ntt<Scalar = Scalar>,
+>(
+    p: &mut M,
+    ntt_ops: &[N],
+) where
+    <M as Matrix>::R: RowMut,
+{
+    izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.backward(r.as_mut()));
+}
+
+/// Inputs are assumed to be in Evaluation representation
 pub fn mul_lazy_mut<
     T: UnsignedInteger,
     MRef: Matrix<MatElement = T>,
@@ -474,7 +502,7 @@ mod tests {
         let mut test = DefaultU64SeededRandomGenerator::new();
 
         let mut poly_q_in = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
-        test.random_fill(&q_chain, &mut poly_q_in);
+        RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test, &q_chain, &mut poly_q_in);
         let mut poly_p_out = Vec::<Vec<u64>>::zeros(p_chain.len(), n);
 
         fast_convert_p_over_q(
@@ -571,7 +599,7 @@ mod tests {
         let mut test_rng = DefaultU64SeededRandomGenerator::new();
 
         let mut poly_q_in = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
-        test_rng.random_fill(&q_chain, &mut poly_q_in);
+        RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &q_chain, &mut poly_q_in);
 
         let mut poly_p_out = Vec::<Vec<u64>>::zeros(p_chain.len(), n);
 
@@ -667,7 +695,7 @@ mod tests {
         let mut test_rng = DefaultU64SeededRandomGenerator::new();
 
         let mut poly_q_in = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
-        test_rng.random_fill(&q_chain, &mut poly_q_in);
+        RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &q_chain, &mut poly_q_in);
 
         let mut poly_t_out = Vec::<Vec<u64>>::zeros(1, n);
 
@@ -783,8 +811,8 @@ mod tests {
         // Random polynomial in QP
         let mut poly0_q_part = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
         let mut poly0_p_part = <Vec<Vec<u64>> as Matrix>::zeros(p_chain.len(), n);
-        test_rng.random_fill(&q_chain, &mut poly0_q_part);
-        test_rng.random_fill(&p_chain, &mut poly0_p_part);
+        RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &q_chain, &mut poly0_q_part);
+        RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &p_chain, &mut poly0_p_part);
 
         let mut poly_out = Vec::<Vec<u64>>::zeros(q_chain.len(), n);
 

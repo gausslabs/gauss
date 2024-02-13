@@ -14,8 +14,8 @@ use crate::{
             RandomUniformDist,
         },
         ring::{
-            self, add_lazy_mut, add_mut, fast_convert_p_over_q, mul_lazy_mut, neg_mut,
-            scale_and_round, simple_scale_and_round, switch_crt_basis,
+            add_lazy_mut, add_mut, backward, fast_convert_p_over_q, foward_lazy, mul_lazy_mut,
+            neg_mut, scale_and_round, simple_scale_and_round, switch_crt_basis,
         },
     },
     keys::SecretKey,
@@ -25,32 +25,6 @@ use crate::{
     },
     utils::convert::TryConvertFrom,
 };
-
-fn foward_lazy<
-    Scalar: UnsignedInteger,
-    Poly: MatrixMut<MatElement = Scalar>,
-    N: Ntt<Scalar = Scalar>,
->(
-    p: &mut Poly,
-    ntt_ops: &[N],
-) where
-    <Poly as Matrix>::R: RowMut,
-{
-    izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.forward_lazy(r.as_mut()));
-}
-
-fn backward<
-    Scalar: UnsignedInteger,
-    Poly: MatrixMut<MatElement = Scalar>,
-    N: Ntt<Scalar = Scalar>,
->(
-    p: &mut Poly,
-    ntt_ops: &[N],
-) where
-    <Poly as Matrix>::R: RowMut,
-{
-    izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.backward(r.as_mut()));
-}
 
 pub fn generate_ternery_secret_with_hamming_weight<
     Scalar: Signed + Clone,
