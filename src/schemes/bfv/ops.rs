@@ -140,13 +140,14 @@ pub fn simd_decode_message<
 }
 
 pub fn secret_key_encryption<
-    
     Scalar: UnsignedInteger,
     Poly: MatrixMut<MatElement = Scalar>,
     S: SecretKey<Scalar = i32>,
     P: BfvEncryptionParameters<Scalar = Scalar>,
     C: RlweCiphertext<Poly = Poly> + InitialiseLevelledCiphertext<C = Vec<Poly>>,
-    R: RandomUniformDist<Scalar, Poly> + RandomGaussianDist<Scalar, Poly> + CryptoRng,
+    R: RandomUniformDist<Poly, Parameters = [Scalar]>
+        + RandomGaussianDist<Poly, Parameters = [Scalar]>
+        + CryptoRng,
 >(
     secret: &S,
     message: &[Scalar],
@@ -183,29 +184,31 @@ where
     });
 
     let q_moduli_chain = parameters.q_moduli_chain_at_level(level);
-    let mut s = <C::Poly>::try_convert_from(&secret.values(), &q_moduli_chain);
-    let mut a = RandomUniformDist::random_ring_poly(rng, q_moduli_chain, ring_size);
+    let mut s = Poly::try_convert_from(&secret.values(), &q_moduli_chain);
+    let mut a_eval = Poly::zeros(q_moduli_chain.len(), ring_size);
+    RandomUniformDist::random_fill(rng, q_moduli_chain, &mut a_eval);
 
     // a*s
     let ntt_ops = parameters.basisq_ntt_ops_at_level(level);
     foward_lazy(&mut s, ntt_ops);
-    foward_lazy(&mut a, ntt_ops);
-    mul_lazy_mut(&mut s, &a, modq_ops);
+    mul_lazy_mut(&mut s, &a_eval, modq_ops);
 
     backward(&mut s, ntt_ops);
-    backward(&mut a, ntt_ops);
 
     // a*s + e
-    let e = RandomGaussianDist::random_ring_poly(rng, q_moduli_chain, ring_size);
+    let mut e = Poly::zeros(q_moduli_chain.len(), ring_size);
+    RandomGaussianDist::random_fill(rng, q_moduli_chain, &mut e);
     add_mut(&mut s, &e, modq_ops);
 
     // a*s + e + \Delta m
     add_mut(&mut s, &m, modq_ops);
 
     // -a
-    neg_mut(&mut a, modq_ops);
+    backward(&mut a_eval, ntt_ops);
+    let mut neg_a = a_eval;
+    neg_mut(&mut neg_a, modq_ops);
 
-    let c = vec![s, a];
+    let c = vec![s, neg_a];
     InitialiseLevelledCiphertext::new(c, level, Representation::Coefficient)
 }
 

@@ -414,10 +414,11 @@ mod tests {
         core_crypto::{
             modulus::{ModulusBackendConfig, NativeModulusBackend},
             prime::generate_primes_vec,
-            random::RandomUniformDist,
+            random::{DefaultU64SeededRandomGenerator, RandomUniformDist, DEFAULT_U64_SEEDED_RNG},
         },
         utils::{
-            convert::{TryConvertFrom, TryConvertFromParts}, mod_inverse, moduli_chain_to_biguint, test_utils::TestRng,
+            convert::{TryConvertFrom, TryConvertFromParts},
+            mod_inverse, moduli_chain_to_biguint,
         },
     };
 
@@ -470,9 +471,10 @@ mod tests {
             .collect_vec();
         let one_over_qi = q_chain.iter().map(|qi| 1f64 / *qi as f64).collect_vec();
 
-        let mut test = TestRng {};
+        let mut test = DefaultU64SeededRandomGenerator::new();
 
-        let poly_q_in = test.random_ring_poly(&q_chain, n);
+        let mut poly_q_in = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
+        test.random_fill(&q_chain, &mut poly_q_in);
         let mut poly_p_out = Vec::<Vec<u64>>::zeros(p_chain.len(), n);
 
         fast_convert_p_over_q(
@@ -566,9 +568,11 @@ mod tests {
             })
             .collect_vec();
 
-        let mut test_rng = TestRng {};
+        let mut test_rng = DefaultU64SeededRandomGenerator::new();
 
-        let poly_q_in = test_rng.random_ring_poly(&q_chain, n);
+        let mut poly_q_in = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
+        test_rng.random_fill(&q_chain, &mut poly_q_in);
+
         let mut poly_p_out = Vec::<Vec<u64>>::zeros(p_chain.len(), n);
 
         switch_crt_basis(
@@ -660,9 +664,11 @@ mod tests {
             );
         });
 
-        let mut test_rng = TestRng {};
+        let mut test_rng = DefaultU64SeededRandomGenerator::new();
 
-        let poly_q_in = test_rng.random_ring_poly(&q_chain, n);
+        let mut poly_q_in = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
+        test_rng.random_fill(&q_chain, &mut poly_q_in);
+
         let mut poly_t_out = Vec::<Vec<u64>>::zeros(1, n);
 
         simple_scale_and_round(
@@ -772,11 +778,13 @@ mod tests {
             })
             .collect_vec();
 
-        let mut test_rng = TestRng {};
+        let mut test_rng = DefaultU64SeededRandomGenerator::new();
 
         // Random polynomial in QP
-        let poly0_q_part = test_rng.random_ring_poly(&q_chain, n);
-        let poly0_p_part = test_rng.random_ring_poly(&p_chain, n);
+        let mut poly0_q_part = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
+        let mut poly0_p_part = <Vec<Vec<u64>> as Matrix>::zeros(p_chain.len(), n);
+        test_rng.random_fill(&q_chain, &mut poly0_q_part);
+        test_rng.random_fill(&p_chain, &mut poly0_p_part);
 
         let mut poly_out = Vec::<Vec<u64>>::zeros(q_chain.len(), n);
 
