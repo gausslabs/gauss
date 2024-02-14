@@ -13,7 +13,7 @@ use crate::{
         modulus::{BarrettBackend, ModulusVecBackend, MontgomeryBackend, MontgomeryScalar},
         ntt::Ntt,
         num::UnsignedInteger,
-        random::{InitWithSeed, RandomGaussianDist, RandomSeed, RandomUniformDist},
+        random::{InitWithSeed, RandomGaussianDist, RandomUniformDist},
         ring::{
             self, approximate_mod_down, approximate_switch_crt_basis, backward, foward, foward_lazy,
         },
@@ -93,15 +93,18 @@ where
 fn generate_key<
     P: HybridKskKeyGenParameters,
     M: Matrix<MatElement = P::Scalar> + MatrixMut,
-    R: RandomSeed + RandomGaussianDist<[P::Scalar], Parameters = P::Scalar>,
-    NR: InitWithSeed<Seed = R::Seed> + RandomUniformDist<[P::Scalar], Parameters = P::Scalar>,
+    Se: Clone,
+    R: RandomUniformDist<Se, Parameters = u8>
+        + RandomGaussianDist<[P::Scalar], Parameters = P::Scalar>,
+    NR: InitWithSeed<Seed = Se> + RandomUniformDist<[P::Scalar], Parameters = P::Scalar>,
     S: SecretKey<Scalar = i32>,
 >(
     params: &P,
     level: usize,
     p: M,
     secret: &S,
-    ksk_polys: &mut [M],
+    ksk_polys_out: &mut [M],
+    seed_out: &mut Se,
     rng: &mut R,
 ) where
     <M as Matrix>::R: RowMut + Clone,
@@ -112,9 +115,9 @@ fn generate_key<
 
     debug_assert!(p.dimension() == (params.primes_at_level(), params.ring_size()));
     debug_assert!(
-        ksk_polys.len() == alpha * 2,
+        ksk_polys_out.len() == alpha * 2,
         "KSK polynomials supplied {} != expected polynomials alpha*2 {}",
-        ksk_polys.len(),
+        ksk_polys_out.len(),
         alpha * 2
     );
 
@@ -123,8 +126,9 @@ fn generate_key<
 
     let ring_size = params.ring_size();
 
-    let seed = rng.random_seed();
-    let mut prng = NR::init_with_seed(seed);
+    // let seed = rng.
+    RandomUniformDist::random_fill(rng, &0u8, seed_out);
+    let mut prng = NR::init_with_seed(seed_out.clone());
 
     let gammak_modqi_at_level = params.gammak_modqi_at_level(level);
 
@@ -142,7 +146,7 @@ fn generate_key<
     let q_size = q_moduli_chain.len();
     let specialp_size = specialp_moduli_chain.len();
 
-    for (k, ck) in izip!(0..alpha, ksk_polys.chunks_exact_mut(2)) {
+    for (k, ck) in izip!(0..alpha, ksk_polys_out.chunks_exact_mut(2)) {
         let gammak = &gammak_modqi_at_level[k];
 
         let (c0_k, c1_k) = ck.split_at_mut(1);

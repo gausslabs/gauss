@@ -10,19 +10,6 @@ use rand_chacha::ChaCha8Rng;
 
 use super::matrix::{Matrix, MatrixMut, RowMut};
 
-pub trait RandomSecretByteGenerator {
-    fn random_bytes(&mut self, size: usize) -> Vec<u8>;
-}
-
-pub trait RandomSecretValueGenerator<T> {
-    fn random_value_in_range(&mut self, range: T) -> T;
-}
-
-pub trait RandomSeed {
-    type Seed;
-    fn random_seed(&mut self) -> Self::Seed;
-}
-
 pub trait RandomGaussianDist<M>
 where
     M: ?Sized,
@@ -102,22 +89,6 @@ impl InitWithSeed for DefaultU64SeededRandomGenerator {
     }
 }
 
-impl RandomSecretByteGenerator for DefaultU64SeededRandomGenerator {
-    fn random_bytes(&mut self, size: usize) -> Vec<u8> {
-        let mut bytes = vec![0u8; size];
-        self.rng.fill_bytes(&mut bytes);
-        bytes
-    }
-}
-
-impl<T: SampleUniform + PartialOrd + Zero> RandomSecretValueGenerator<T>
-    for DefaultU64SeededRandomGenerator
-{
-    fn random_value_in_range(&mut self, range: T) -> T {
-        self.rng.gen_range(T::zero()..range)
-    }
-}
-
 impl<M: MatrixMut<MatElement = u64>> RandomUniformDist<M> for DefaultU64SeededRandomGenerator
 where
     <M as Matrix>::R: RowMut,
@@ -149,6 +120,27 @@ impl RandomUniformDist<[u64]> for DefaultU64SeededRandomGenerator {
             (&mut self.rng).sample_iter(Uniform::new(0, *parameters))
         )
         .for_each(|(r_el, random_el)| *r_el = random_el);
+    }
+}
+
+impl RandomUniformDist<usize> for DefaultU64SeededRandomGenerator {
+    type Parameters = usize;
+    fn random_fill(&mut self, upper_excluded: &Self::Parameters, container: &mut usize) {
+        *container = self.rng.gen_range(0..*upper_excluded);
+    }
+}
+
+impl RandomUniformDist<[u8; 32]> for DefaultU64SeededRandomGenerator {
+    type Parameters = u8;
+    fn random_fill(&mut self, _parameters: &Self::Parameters, container: &mut [u8; 32]) {
+        self.rng.fill_bytes(container);
+    }
+}
+
+impl RandomUniformDist<[u8]> for DefaultU64SeededRandomGenerator {
+    type Parameters = u8;
+    fn random_fill(&mut self, _parameters: &Self::Parameters, container: &mut [u8]) {
+        self.rng.fill_bytes(container);
     }
 }
 
