@@ -4,10 +4,11 @@ use super::{
         BarrettBackend, ModulusArithmeticBackend, ModulusVecBackend, MontgomeryBackend,
         MontgomeryScalar,
     },
-    ntt::Ntt,
+    ntt::{Ntt, NttConfig},
     num::UnsignedInteger,
 };
 use itertools::{izip, Itertools};
+use num_traits::AsPrimitive;
 
 pub fn foward_lazy<
     Scalar: UnsignedInteger,
@@ -20,6 +21,15 @@ pub fn foward_lazy<
     <M as Matrix>::R: RowMut,
 {
     izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.forward_lazy(r.as_mut()));
+}
+
+pub fn foward<Scalar: UnsignedInteger, M: MatrixMut<MatElement = Scalar>, N: Ntt<Scalar = Scalar>>(
+    p: &mut M,
+    ntt_ops: &[N],
+) where
+    <M as Matrix>::R: RowMut,
+{
+    izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.forward(r.as_mut()));
 }
 
 pub fn backward<
@@ -105,6 +115,30 @@ pub fn add_mut<
 
     izip!(q0.iter_rows_mut(), q1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
         modqi.add_mod_vec(r0.as_mut(), r1.as_ref());
+    });
+}
+
+pub fn sub_mut<
+    Scalar: UnsignedInteger,
+    MRef: Matrix<MatElement = Scalar>,
+    MMut: MatrixMut<MatElement = Scalar>,
+    ModOps: ModulusVecBackend<Scalar>,
+>(
+    q0: &mut MMut,
+    q1: &MRef,
+    modq_ops: &[ModOps],
+) where
+    <MMut as Matrix>::R: RowMut,
+{
+    debug_assert!(
+        q0.dimension() == q1.dimension(),
+        "Input matrices have unequal dimensions: {:#?}!={:#?}",
+        q0.dimension(),
+        q1.dimension()
+    );
+
+    izip!(q0.iter_rows_mut(), q1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
+        modqi.sub_mod_vec(r0.as_mut(), r1.as_ref());
     });
 }
 
@@ -269,6 +303,103 @@ pub fn switch_crt_basis<
             p_out.set(j, ri, input_modpj);
         }
     }
+}
+
+pub fn approximate_switch_crt_basis<
+    // `num_traits::AsPrimitive<u128> + num_traits::PrimInt,` are a consquenece of BarrettBackend
+    // trait. Check issue #12
+    S: UnsignedInteger + num_traits::AsPrimitive<u128> + num_traits::PrimInt,
+    M: Matrix<MatElement = S>,
+    MMut: MatrixMut<MatElement = S>,
+    ModOp: ModulusVecBackend<S> + BarrettBackend<S, u128> + MontgomeryBackend<S, u128>,
+>(
+    p_out: &mut MMut,
+    q_in: &M,
+    q_over_qi_inv_modqi: &[S],
+    q_over_qi_per_modpj: &[Vec<MontgomeryScalar<S>>],
+    modq_operators: &[ModOp],
+    modp_operators: &[ModOp],
+    ring_size: usize,
+    p_size: usize,
+) where
+    <MMut as Matrix>::R: RowMut,
+    u128: AsPrimitive<S>,
+{
+    for ri in 0..ring_size {
+        let q_values = izip!(
+            modq_operators.iter(),
+            q_in.get_col_iter(ri),
+            q_over_qi_inv_modqi.iter()
+        )
+        .map(|(modqi, x_qi, q_over_qi_inv)| modqi.mul_mod_fast(*x_qi, *q_over_qi_inv))
+        .collect_vec();
+
+        for j in 0..p_size {
+            let modpj = &modp_operators[j];
+
+            // map q_values to mont space \mod pj
+            let q_vals_in_mont = q_values
+                .iter()
+                .map(|v| modpj.normal_to_mont_space(*v))
+                .collect_vec();
+
+            // fma q_over_qi_modpj
+            let x = modpj.mont_fma(&q_vals_in_mont, &q_over_qi_per_modpj[j]);
+
+            // map from mont to normal
+            let x = modpj.mont_to_normal(x);
+
+            p_out.set(j, ri, x);
+        }
+    }
+}
+
+pub fn approximate_mod_down<
+    // `num_traits::AsPrimitive<u128> + num_traits::PrimInt,` are a consquenece of BarrettBackend
+    // trait. Check issue #12
+    S: UnsignedInteger + num_traits::AsPrimitive<u128> + num_traits::PrimInt,
+    M: Matrix<MatElement = S>,
+    MMut: MatrixMut<MatElement = S>,
+    ModOp: ModulusVecBackend<S> + BarrettBackend<S, u128> + MontgomeryBackend<S, u128>,
+    NttOp: Ntt<Scalar = S>,
+>(
+    q_out_eval: &mut MMut,
+    q_in_eval: &M,
+    p_in: &M,
+    p_over_pj_modpj: &[S],
+    p_over_pj_per_modqi: &[Vec<MontgomeryScalar<S>>],
+    p_inv_modqi: &[S],
+    modq_operators: &[ModOp],
+    modp_operators: &[ModOp],
+    p_nttops: &[NttOp],
+    ring_size: usize,
+    q_size: usize,
+    p_size: usize,
+) where
+    <MMut as Matrix>::R: RowMut,
+    u128: AsPrimitive<S>,
+{
+    // Switch P subbasis to Q
+    approximate_switch_crt_basis(
+        q_out_eval,
+        p_in,
+        p_over_pj_modpj,
+        p_over_pj_per_modqi,
+        modp_operators,
+        modq_operators,
+        ring_size,
+        q_size,
+    );
+    foward(q_out_eval, p_nttops);
+
+    sub_mut(q_out_eval, q_in_eval, modq_operators);
+
+    izip!(
+        modq_operators.iter(),
+        q_out_eval.iter_rows_mut(),
+        p_inv_modqi.iter()
+    )
+    .for_each(|(modqi, x_qi, p_inv_qi)| modqi.scalar_mul_mod_vec(x_qi.as_mut(), *p_inv_qi));
 }
 
 /// Simple scale and round procedure. Given input polynomial x \in R_Q it
@@ -463,7 +594,6 @@ mod tests {
 
         // we will sample radnom polynomial x \in R_Q and calculate [\frac{P}{Q} \cdot
         // x]_P
-
         let modq_operators = q_chain
             .iter()
             .map(|qi| NativeModulusBackend::initialise(*qi))
