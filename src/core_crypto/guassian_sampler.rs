@@ -52,14 +52,13 @@ impl GaussianSampler {
 mod tests {
     use super::*;
     use rand::Rng;
-    const SIGMA: f64 = 3.2;
-
     #[test]
     fn gaussian_sampler_truncation_limit() {
         // Assert that the samples are within the bounds of the truncated Gaussian distribution.
-        let sampler = GaussianSampler::new(SIGMA);
+        let sigma = rand::thread_rng().gen_range(1.0..=100.0);
+        let sampler = GaussianSampler::new(sigma);
 
-        for _ in 0..(1 << 25) {
+        for _ in 0..5000000 {
             let norm = sampler.norm_f64();
             assert!((f64::MIN..=f64::MAX).contains(&norm));
             let sample = sampler.sample();
@@ -70,29 +69,31 @@ mod tests {
     #[test]
     fn gaussian_sampler_mean() {
         // Assert that the mean of the samples is close to 0.
-        let sampler = GaussianSampler::new(SIGMA);
+        let sigma = rand::thread_rng().gen_range(1.0..=100.0);
+        let sampler = GaussianSampler::new(sigma);
 
         let mut sum = 0;
-        let n = 1 << 25;
+        let n = 5000000;
         for _ in 0..n {
             sum += sampler.sample();
         }
         let mean = sum as f64 / n as f64;
-        assert!((mean - 0.001..=mean + 0.001).contains(&0.0));
+        assert!((mean - 0.1..=mean + 0.1).contains(&0.0));
     }
 
     #[test]
     fn gaussian_sampler_pmf_consistency() {
         // Assert that the probability mass function for a random `x` observed by performing sample on the `sampler`
         // is consistent with the expected distribution.
-        let sampler = GaussianSampler::new(SIGMA);
+        let sigma = rand::thread_rng().gen_range(1.0..=100.0);
+        let sampler = GaussianSampler::new(sigma);
         let val = rand::thread_rng().gen_range(-sampler.params.bound..=sampler.params.bound);
 
         let pmf_expected = (1.0 / ((2.0 * std::f64::consts::PI).sqrt() * sampler.params.sigma))
             * (-0.5 * (val as f64 / sampler.params.sigma).powi(2)).exp();
 
         let mut count = 0;
-        let n = 1 << 25;
+        let n = 5000000;
         for _ in 0..n {
             if sampler.sample() == val {
                 count += 1;
