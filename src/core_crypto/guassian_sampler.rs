@@ -56,6 +56,7 @@ mod tests {
 
     #[test]
     fn gaussian_sampler_truncation_limit() {
+        // Assert that the samples are within the bounds of the truncated Gaussian distribution.
         let sampler = GaussianSampler::new(SIGMA);
 
         for _ in 0..(1 << 25) {
@@ -68,6 +69,7 @@ mod tests {
 
     #[test]
     fn gaussian_sampler_mean() {
+        // Assert that the mean of the samples is close to 0.
         let sampler = GaussianSampler::new(SIGMA);
 
         let mut sum = 0;
@@ -80,7 +82,9 @@ mod tests {
     }
 
     #[test]
-    fn gaussian_pmf_consistency() {
+    fn gaussian_sampler_pmf_consistency() {
+        // Assert that the probability mass function for a random `x` observed by performing sample on the `sampler`
+        // is consistent with the expected distribution.
         let sampler = GaussianSampler::new(SIGMA);
         let val = rand::thread_rng().gen_range(-sampler.params.bound..=sampler.params.bound);
 
