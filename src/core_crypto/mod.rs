@@ -1,3 +1,4 @@
+pub(crate) mod guassian_sampler;
 pub(crate) mod modulus;
 pub(crate) mod ntt;
 pub(crate) mod num;
