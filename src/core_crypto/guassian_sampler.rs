@@ -18,7 +18,8 @@ struct GaussianSampler {
 
 impl GaussianSampler {
     /// `new` returns a new `GaussianSampler` with the given parameters starting from the standard deviation `sigma`.
-    fn new(sigma: f64) -> Self {
+    pub fn new(sigma: f64) -> Self {
+        assert!(sigma > 0.0, "sigma must be positive");
         let bound = (6.0 * sigma).round() as i64;
         Self {
             params: TruncatedDiscreteGaussian { sigma, bound },
