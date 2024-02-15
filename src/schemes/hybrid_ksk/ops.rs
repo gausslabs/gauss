@@ -1,10 +1,4 @@
-// key gen
-// key switch
-
-use std::thread::panicking;
-
 use itertools::{izip, Itertools};
-use num_bigint::BigUint;
 use num_traits::{AsPrimitive, PrimInt, Unsigned};
 
 use crate::{
@@ -14,9 +8,7 @@ use crate::{
         ntt::Ntt,
         num::UnsignedInteger,
         random::{InitWithSeed, RandomGaussianDist, RandomUniformDist},
-        ring::{
-            self, approximate_mod_down, approximate_switch_crt_basis, backward, foward, foward_lazy,
-        },
+        ring::{approximate_mod_down, backward, backward_lazy, foward_lazy, reduce_from_lazy_mut},
     },
     keys::SecretKey,
     parameters::Parameters,
@@ -28,9 +20,8 @@ pub trait HybridKskKeyGenParameters: Parameters {
     type NttOp: Ntt<Scalar = Self::Scalar>;
 
     fn dnum(&self) -> usize;
+    fn alpha_at_level(&self, level: usize) -> usize;
     fn ring_size(&self) -> usize;
-    fn specialp_moduli_chain(&self) -> &[Self::Scalar];
-    fn primes_at_level(&self) -> usize;
 
     fn q_modops_at_level(&self, level: usize) -> &[Self::ModOp];
     fn specialp_modops_at_level(&self, level: usize) -> &[Self::ModOp];
@@ -39,13 +30,9 @@ pub trait HybridKskKeyGenParameters: Parameters {
     fn specialp_nttops_at_level(&self, level: usize) -> &[Self::NttOp];
 
     fn q_moduli_chain_at_level(&self, level: usize) -> &[Self::Scalar];
-    fn specialp_moduli_chain_at_level(&self, level: usize) -> &[Self::Scalar];
-
-    fn big_specialp(&self, level: usize) -> BigUint;
-    fn big_qjs_at_level(&self, level: usize) -> &[BigUint];
+    fn specialp_moduli_chain_at_level(&self) -> &[Self::Scalar];
 
     fn gammak_modqi_at_level(&self, level: usize) -> &[Vec<Self::Scalar>];
-    fn alpha_at_level(&self, level: usize) -> usize;
 }
 
 pub trait HybridKskRuntimeParameters: Parameters
@@ -62,6 +49,7 @@ where
     type NttOp: Ntt<Scalar = Self::Scalar>;
 
     fn dnum(&self) -> usize;
+    fn ring_size(&self) -> usize;
 
     fn q_modops_at_level(&self, level: usize) -> &[Self::ModOp];
     fn specialp_modops_at_level(&self, level: usize) -> &[Self::ModOp];
@@ -72,7 +60,7 @@ where
     fn q_moduli_chain_at_level(&self, level: usize) -> &[Self::Scalar];
     fn specialp_moduli_chain_at_level(&self, level: usize) -> &[Self::Scalar];
 
-    fn specialp_over_specialpj_modspecialpj_at_level(&self, level: usize) -> &[Self::Scalar];
+    fn specialp_over_specialpj_inv_modspecialpj_at_level(&self, level: usize) -> &[Self::Scalar];
     fn specialp_over_specialpj_per_modqi_at_level(
         &self,
         level: usize,
@@ -90,18 +78,20 @@ where
     ) -> &[Vec<Vec<MontgomeryScalar<Self::Scalar>>>];
 }
 
-fn generate_key<
+/// Input polynomial p must be in Evaluation form
+pub fn generate_key<
     P: HybridKskKeyGenParameters,
     M: Matrix<MatElement = P::Scalar> + MatrixMut,
     Se: Clone,
     R: RandomUniformDist<Se, Parameters = u8>
-        + RandomGaussianDist<[P::Scalar], Parameters = P::Scalar>,
-    NR: InitWithSeed<Seed = Se> + RandomUniformDist<[P::Scalar], Parameters = P::Scalar>,
+        + RandomUniformDist<[P::Scalar], Parameters = P::Scalar>
+        + RandomGaussianDist<[P::Scalar], Parameters = P::Scalar>
+        + InitWithSeed<Seed = Se>,
     S: SecretKey<Scalar = i32>,
 >(
     params: &P,
     level: usize,
-    p: M,
+    p_eval: &M,
     secret: &S,
     ksk_polys_out: &mut [M],
     seed_out: &mut Se,
@@ -110,25 +100,30 @@ fn generate_key<
     <M as Matrix>::R: RowMut + Clone,
     M: TryConvertFrom<[i32], Parameters = [P::Scalar]>,
 {
-    let dnum = params.dnum();
-    let alpha = (dnum as f64 / (level as f64 + 1.0)).ceil() as usize;
+    let alpha = params.alpha_at_level(level);
 
-    debug_assert!(p.dimension() == (params.primes_at_level(), params.ring_size()));
+    debug_assert!(
+        p_eval.dimension()
+            == (
+                params.q_moduli_chain_at_level(level).len(),
+                params.ring_size()
+            )
+    );
     debug_assert!(
         ksk_polys_out.len() == alpha * 2,
-        "KSK polynomials supplied {} != expected polynomials alpha*2 {}",
+        "KSK polynomials supplied: {} != expected polynomials alpha*2: {}",
         ksk_polys_out.len(),
         alpha * 2
     );
 
     let q_moduli_chain = params.q_moduli_chain_at_level(level);
-    let specialp_moduli_chain = params.specialp_moduli_chain();
+    let specialp_moduli_chain = params.specialp_moduli_chain_at_level();
 
     let ring_size = params.ring_size();
 
     // let seed = rng.
     RandomUniformDist::random_fill(rng, &0u8, seed_out);
-    let mut prng = NR::init_with_seed(seed_out.clone());
+    let mut prng = R::init_with_seed(seed_out.clone());
 
     let gammak_modqi_at_level = params.gammak_modqi_at_level(level);
 
@@ -162,7 +157,7 @@ fn generate_key<
             q_moduli_chain.iter(),
             q_modops.iter(),
             q_nttops.iter(),
-            p.iter_rows(),
+            p_eval.iter_rows(),
             c0_k.iter_rows_mut().take(q_size),
             c1_k.iter_rows_mut().take(q_size),
             s_partq.iter_rows()
@@ -170,24 +165,27 @@ fn generate_key<
         .for_each(
             |(gammak_modqi, qi, qi_modop, qi_nttop, p_modqi, c0k_modqi, c1k_modqi, s_modqi)| {
                 // Assume c_{1,k} is sampled in evaluation form
+                // We store ciphertexts tuple as (c0, c1) where c1 is -a (a being the pseudo
+                // random part of the ciphertext). Hence, we sample -c1.
                 RandomUniformDist::random_fill(&mut prng, qi, c1k_modqi.as_mut());
 
-                // c1_k * s \mod qi
-                let mut c1k_s = c1k_modqi.clone();
-                qi_modop.mul_lazy_mod_vec(c1k_s.as_mut(), s_modqi.as_ref());
+                // a * s \mod qi
+                let mut a_s = c1k_modqi.clone();
+                qi_modop.neg_mod_vec(a_s.as_mut());
+                qi_modop.mul_lazy_mod_vec(a_s.as_mut(), s_modqi.as_ref());
 
                 // e \mod qi
                 RandomGaussianDist::random_fill(rng, qi, c0k_modqi.as_mut());
                 qi_nttop.forward_lazy(c0k_modqi.as_mut());
 
-                // e + c1_k * s \mod qi
-                qi_modop.add_lazy_mod_vec(c0k_modqi.as_mut(), c1k_s.as_ref());
+                // e + a * s \mod qi
+                qi_modop.add_lazy_mod_vec(c0k_modqi.as_mut(), a_s.as_ref());
 
                 // gamma_k * p \mod qi
                 let mut p_modqi_clone = p_modqi.clone();
-                qi_modop.scalar_mul_mod_vec(p_modqi_clone.as_mut(), *gammak_modqi);
+                qi_modop.scalar_mul_lazy_mod_vec(p_modqi_clone.as_mut(), *gammak_modqi);
 
-                // e + c1_k * s + gamma_k * p \mod qi
+                // e + a * s + gamma_k * p \mod qi
                 qi_modop.add_lazy_mod_vec(c0k_modqi.as_mut(), p_modqi_clone.as_ref());
             },
         );
@@ -205,30 +203,34 @@ fn generate_key<
             // Assume c_{1, k} is sampled in evaluation form
             RandomUniformDist::random_fill(&mut prng, pj, c1k_modpj.as_mut());
 
-            // c1_k * s \mod pj
-            let mut c1k_s = c1k_modpj.clone();
-            pj_modop.mul_lazy_mod_vec(c1k_s.as_mut(), s_modpj.as_ref());
+            // a * s \mod pj
+            let mut a_s = c1k_modpj.clone();
+            pj_modop.neg_mod_vec(a_s.as_mut());
+            pj_modop.mul_lazy_mod_vec(a_s.as_mut(), s_modpj.as_ref());
 
             // e \mod pj
             RandomGaussianDist::random_fill(rng, pj, c0k_modpj.as_mut());
             pj_nttop.forward_lazy(c0k_modpj.as_mut());
 
-            // e + c1_k * s \mod pj
-            pj_modop.add_lazy_mod_vec(c0k_modpj.as_mut(), c1k_s.as_ref());
+            // e + a * s \mod pj
+            pj_modop.add_lazy_mod_vec(c0k_modpj.as_mut(), a_s.as_ref());
         });
     }
 }
 
-fn keyswitch<
+/// Input polynomial x must be in coefficient form. Outout ciphertext
+/// polynomials c0_out and c1_out are in Evaluation representation
+pub fn keyswitch<
     M: Matrix,
     MMut: MatrixMut<MatElement = M::MatElement> + Clone,
     P: HybridKskRuntimeParameters<Scalar = M::MatElement>,
 >(
-    x: M,
+    x: &M,
     c0_out: &mut MMut,
     c1_out: &mut MMut,
     ksk_polys: &[M],
     params: &P,
+    level: usize,
 ) where
     <MMut as Matrix>::R: RowMut,
     M::MatElement: UnsignedInteger,
@@ -239,7 +241,6 @@ fn keyswitch<
 {
     let dnum = params.dnum();
 
-    let level = 0;
     let q_moduli_chain = params.q_moduli_chain_at_level(level);
     let specialp_moduli_chain = params.specialp_moduli_chain_at_level(level);
 
@@ -251,13 +252,20 @@ fn keyswitch<
 
     let q_size = q_moduli_chain.len();
     let specialp_size = specialp_moduli_chain.len();
-    let ring_size = 0;
+    let ring_size = params.ring_size();
+
+    debug_assert!(
+        x.dimension() == (q_size, ring_size),
+        "Dimensions of input polynomial to key switch are incorrect: Expect {:?} got {:?}",
+        x.dimension(),
+        (q_size, ring_size),
+    );
 
     let mut k = 0;
     let mut c0_sum_subbasisq = MMut::zeros(q_size, ring_size);
     let mut c1_sum_subbasisq = MMut::zeros(q_size, ring_size);
-    let mut c0_sum_subbasisspecialp = MMut::zeros(q_size, ring_size);
-    let mut c1_sum_subbasisspecialp = MMut::zeros(q_size, ring_size);
+    let mut c0_sum_subbasisspecialp = MMut::zeros(specialp_size, ring_size);
+    let mut c1_sum_subbasisspecialp = MMut::zeros(specialp_size, ring_size);
 
     let qj_over_qji_inv_modqji_all_k = params.qj_over_qji_inv_modqji_level(level);
     let qj_over_qji_per_modqi_all_k = params.qj_over_qji_per_modqi_at_level(level);
@@ -294,6 +302,7 @@ fn keyswitch<
         );
 
         // Switch basis x \in Qj from Qj to QP_s
+        // FIXME(Jay): Consolidate all 3 into 1
         let mut q_till_start = MMut::zeros(start, ring_size);
         let mut q_from_end = MMut::zeros(q_size - end, ring_size);
         let mut specialp_all = MMut::zeros(specialp_size, ring_size);
@@ -301,7 +310,8 @@ fn keyswitch<
             let mut q_values = Vec::with_capacity(end - start);
             for j in start..end {
                 q_values.push(
-                    q_modops[j].mul_mod_fast(*x.get_element(j, ri), qj_over_qji_inv_modqji[j]),
+                    q_modops[j]
+                        .mul_mod_fast(*x.get_element(j, ri), qj_over_qji_inv_modqji[j - start]),
                 );
             }
 
@@ -324,10 +334,10 @@ fn keyswitch<
                 q_till_start.set(index, ri, tmp)
             }
 
-            // q_{end}..q_l
+            // q_{end}..q_{size-1}
             for (index, (qi, modqi, qj_over_qji_modqi)) in izip!(
                 &q_moduli_chain[end..],
-                &q_modops[end..start],
+                &q_modops[end..],
                 &qj_over_qji_per_modqi[start..]
             )
             .enumerate()
@@ -340,7 +350,7 @@ fn keyswitch<
 
                 let tmp = modqi.mont_fma(&q_in_mont_space, &qj_over_qji_modqi);
                 let tmp = modqi.mont_to_normal(tmp);
-                q_from_end.set(end + index, ri, tmp)
+                q_from_end.set(index, ri, tmp)
             }
 
             // p_0..p_l
@@ -400,7 +410,7 @@ fn keyswitch<
         let mut x_partqj_c0 = x_partqj.clone();
         let mut x_partqj_c1 = x_partqj;
         for (modqi, x_qi_c0, x_qi_c1, c0_k_qi, c1_k_qi, c0_sum_qi, c1_sum_qi) in izip!(
-            q_modops[..start].iter(),
+            q_modops[start..end].iter(),
             x_partqj_c0.iter_rows_mut(),
             x_partqj_c1.iter_rows_mut(),
             ksk_polys[2 * k].iter_rows().skip(start),
@@ -420,13 +430,13 @@ fn keyswitch<
         let mut q_from_end_c0 = q_from_end.clone();
         let mut q_from_end_c1 = q_from_end;
         for (modqi, x_qi_c0, x_qi_c1, c0_k_qi, c1_k_qi, c0_sum_qi, c1_sum_qi) in izip!(
-            q_modops[..start].iter(),
+            q_modops[end..].iter(),
             q_from_end_c0.iter_rows_mut(),
             q_from_end_c1.iter_rows_mut(),
             ksk_polys[2 * k].iter_rows().skip(end),
             ksk_polys[2 * k + 1].iter_rows().skip(end),
-            c0_sum_subbasisq.iter_rows_mut().skip(start),
-            c1_sum_subbasisq.iter_rows_mut().skip(start)
+            c0_sum_subbasisq.iter_rows_mut().skip(end),
+            c1_sum_subbasisq.iter_rows_mut().skip(end)
         ) {
             modqi.mul_lazy_mod_vec(x_qi_c0.as_mut(), c0_k_qi.as_ref());
             modqi.mul_lazy_mod_vec(x_qi_c1.as_mut(), c1_k_qi.as_ref());
@@ -460,12 +470,12 @@ fn keyswitch<
 
     // Change representation of only subbasis P_s to Coefficient for approximate mod
     // down
-    backward(&mut c0_sum_subbasisspecialp, specialp_nttops);
-    backward(&mut c1_sum_subbasisspecialp, specialp_nttops);
+    backward_lazy(&mut c0_sum_subbasisspecialp, specialp_nttops);
+    backward_lazy(&mut c1_sum_subbasisspecialp, specialp_nttops);
 
     // Approximate Mod Down: v \in QP_s => (1/P)v \in Q
-    let specialp_over_specialpj_modspecialpj =
-        params.specialp_over_specialpj_modspecialpj_at_level(level);
+    let specialp_over_specialpj_inv_modspecialpj =
+        params.specialp_over_specialpj_inv_modspecialpj_at_level(level);
     let specialp_over_specialpj_per_modqi =
         params.specialp_over_specialpj_per_modqi_at_level(level);
     let specialp_inv_modqi = params.specialp_inv_modqi_at_level(level);
@@ -473,28 +483,30 @@ fn keyswitch<
         c0_out,
         &c0_sum_subbasisq,
         &c0_sum_subbasisspecialp,
-        specialp_over_specialpj_modspecialpj,
+        specialp_over_specialpj_inv_modspecialpj,
         specialp_over_specialpj_per_modqi,
         specialp_inv_modqi,
         q_modops,
         specialp_modops,
-        specialp_nttops,
+        q_nttops,
         ring_size,
         q_size,
         specialp_size,
     );
     approximate_mod_down(
         c1_out,
-        &c0_sum_subbasisq,
-        &c0_sum_subbasisspecialp,
-        specialp_over_specialpj_modspecialpj,
+        &c1_sum_subbasisq,
+        &c1_sum_subbasisspecialp,
+        specialp_over_specialpj_inv_modspecialpj,
         specialp_over_specialpj_per_modqi,
         specialp_inv_modqi,
         q_modops,
         specialp_modops,
-        specialp_nttops,
+        q_nttops,
         ring_size,
         q_size,
         specialp_size,
     );
+    reduce_from_lazy_mut(c0_out, q_modops);
+    reduce_from_lazy_mut(c1_out, q_modops);
 }

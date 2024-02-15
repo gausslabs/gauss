@@ -79,8 +79,17 @@ pub(crate) fn find_primitive_root<R: RngCore>(q: u64, n: u64, rng: &mut R) -> Op
         // \omega = \omega^t. \omega is now n^th root of unity
         omega = mod_exponent(omega, t, q);
 
+        #[cfg(debug)]
+        {
+            let check = mod_exponent(omega, n, q);
+            debug_assert!(
+                check == 1,
+                "omega({omega}) is not n^th root of unity: Expected 1 but is {check}",
+            );
+        }
+
         // We restrict n to be power of 2. Thus checking whether \omega is primitive
-        // n^th root of unity is a simple check: \omega^{n/2} != 1
+        // n^th root of unity is as simple as checking: \omega^{n/2} != 1
         if mod_exponent(omega, n >> 1, q) == 1 {
             continue;
         } else {

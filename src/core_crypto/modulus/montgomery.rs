@@ -2,8 +2,7 @@ use std::ops::{Add, Deref, Mul, Shl, Shr, Sub};
 
 use crate::{core_crypto::num::UnsignedInteger, utils::FastModularInverse};
 use itertools::izip;
-use num_derive::{FromPrimitive, Num, NumOps, ToPrimitive};
-use num_traits::{AsPrimitive, WrappingShr};
+use num_traits::AsPrimitive;
 
 /// Wrapper around `MontgomeryScalar`s.
 ///
@@ -139,11 +138,11 @@ where
 
         let mut sum = MontgomeryScalar::zero();
         izip!(a.iter(), b.iter()).for_each(|(&a0, &b0)| {
-            debug_assert!(Scalar::zero() <= a0.0 && a0.0 < n + n); // a0 in range [0, 2q)
-            debug_assert!(Scalar::zero() <= b0.0 && b0.0 < n + n); // b0 in range [0, 2q)
+            debug_assert!(a0.0 < n + n); // a0 in range [0, 2q)
+            debug_assert!(b0.0 < n + n); // b0 in range [0, 2q)
 
             let mul = a0.0.as_() * b0.0.as_();
-            assert!(mul < (n.as_() << Scalar::BITS)); // mul < nR
+            debug_assert!(mul < (n.as_() << Scalar::BITS)); // mul < nR
 
             let u = (mul >> Scalar::BITS).as_();
             let v = mul.as_();
@@ -179,13 +178,37 @@ where
         self.mont_mul(MontgomeryScalar(a), MontgomeryScalar(self.r_square_modn()))
     }
 
+    /// Transforms input scalar from normal space to montogmery space.
+    ///
+    /// Input should be in range [0, r)
+    ///
+    /// This is same as `normal_to_mont_space` but output is in range [0, 2q).
+    fn normal_to_mont_space_lazy(&self, a: Scalar) -> MontgomeryScalar<Scalar> {
+        self.mont_mul_lazy(MontgomeryScalar(a), MontgomeryScalar(self.r_square_modn()))
+    }
+
     /// Transforms input from montogmery space to normal space.
     /// Calculates a * r^{-1} (mod n).
+    ///
+    /// Input should be in range [0, r)
     fn mont_to_normal(&self, a: MontgomeryScalar<Scalar>) -> Scalar {
         // since (a * 1) r^{-1} (mod n) = a * r^{-1} (mod n),
         // one can transform `a` from montgomery space to normal
         // space via calling `mont_mul` routine with `1` as second
         // operand.
         self.mont_mul(a, MontgomeryScalar(Scalar::one())).0
+    }
+
+    /// Maps input from montgomery space to normal space.
+    ///
+    /// Input should be in range [0, r)
+    ///
+    /// This is same as `mont_to_normal` except output is in range [0, 2q)
+    fn mont_to_normal_lazy(&self, a: MontgomeryScalar<Scalar>) -> Scalar {
+        // since (a * 1) r^{-1} (mod n) = a * r^{-1} (mod n),
+        // one can transform `a` from montgomery space to normal
+        // space via calling `mont_mul` routine with `1` as second
+        // operand.
+        self.mont_mul_lazy(a, MontgomeryScalar(Scalar::one())).0
     }
 }

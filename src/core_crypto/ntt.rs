@@ -170,7 +170,7 @@ pub fn ntt_inv_lazy(
         .for_each(|a0| *a0 = ((*a0 as u128 * n_inv as u128) % q as u128) as u64);
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct NativeNTTBackend {
     q: u64,
     q_twice: u64,
@@ -190,6 +190,7 @@ impl NttConfig for NativeNTTBackend {
         let mut rng = thread_rng();
         let psi = find_primitive_root(q, (n * 2) as u64, &mut rng)
             .expect("Unable to find 2n^th root of unity");
+
         let psi_inv = mod_inverse(psi, q);
 
         let modulus = NativeModulusBackend::initialise(q);
@@ -245,10 +246,10 @@ impl NttConfig for NativeNTTBackend {
 }
 
 impl NativeNTTBackend {
-    fn reduce_lazy(&self, a: &mut [u64]) {
+    fn reduce_from_lazy(&self, a: &mut [u64]) {
         a.iter_mut().for_each(|a0| {
             let q = self.q;
-            if *a0 > q {
+            if *a0 >= q {
                 *a0 = *a0 - q;
             }
         });
@@ -264,7 +265,7 @@ impl Ntt for NativeNTTBackend {
             self.q,
             self.q_twice,
         );
-        self.reduce_lazy(a);
+        self.reduce_from_lazy(a);
     }
 
     fn backward(&self, a: &mut [Self::Scalar]) {
@@ -276,7 +277,7 @@ impl Ntt for NativeNTTBackend {
             self.q,
             self.q_twice,
         );
-        self.reduce_lazy(a);
+        self.reduce_from_lazy(a);
     }
 
     fn forward_lazy(&self, a: &mut [Self::Scalar]) {
@@ -304,7 +305,10 @@ impl Ntt for NativeNTTBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::test_utils::random_vec_in_fq;
+    use crate::{
+        core_crypto::{modulus::ModulusVecBackend, prime::generate_prime},
+        utils::{negacyclic_mul, test_utils::random_vec_in_fq},
+    };
 
     const Q_60_BITS: u64 = 1152921504606748673;
     const N: usize = 1 << 4;
@@ -313,6 +317,7 @@ mod tests {
 
     #[test]
     fn native_ntt_backend_works() {
+        // TODO(Jay): Improve tests. Add tests for different primes and ring size.
         let ntt_backend = NativeNTTBackend::init(Q_60_BITS, N);
         for _ in 0..K {
             let mut a = random_vec_in_fq(N, Q_60_BITS);
@@ -337,6 +342,38 @@ mod tests {
                 }
             });
             assert_eq!(a, a_clone);
+        }
+    }
+
+    #[test]
+    fn native_ntt_negacylic_mul() {
+        let primes = [40, 50, 60]
+            .iter()
+            .map(|bits| generate_prime(*bits, (2 * N) as u64, 1u64 << bits).unwrap())
+            .collect_vec();
+
+        for p in primes.into_iter() {
+            let ntt_backend = NativeNTTBackend::init(p, N);
+            let modulus_backend = NativeModulusBackend::initialise(p);
+            for _ in 0..K {
+                let a = random_vec_in_fq(N, p);
+                let b = random_vec_in_fq(N, p);
+
+                let mut a_clone = a.clone();
+                let mut b_clone = b.clone();
+                ntt_backend.forward_lazy(&mut a_clone);
+                ntt_backend.forward_lazy(&mut b_clone);
+                modulus_backend.mul_lazy_mod_vec(&mut a_clone, &b_clone);
+                ntt_backend.backward(&mut a_clone);
+
+                let mul = |a: &u64, b: &u64| {
+                    let tmp = *a as u128 * *b as u128;
+                    (tmp % p as u128) as u64
+                };
+                let expected_out = negacyclic_mul(&a, &b, mul, p);
+
+                assert_eq!(a_clone, expected_out);
+            }
         }
     }
 }

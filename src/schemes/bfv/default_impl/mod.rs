@@ -1,8 +1,7 @@
-use entities::BfvSecretKey;
-
 mod entities;
 
 pub type BfvCiphertext = entities::BfvCiphertextScalarU64GenericStorage<Vec<Vec<u64>>>;
+pub type BfvSecretKey = entities::BfvSecretKey;
 
 #[cfg(test)]
 mod tests {
@@ -40,7 +39,7 @@ mod tests {
 
     #[test]
     fn encryption_decryption_works() {
-        build_parameters(&[40, 40], 65537, 1 << 3);
+        build_parameters(&[50, 50], 65537, 1 << 3);
         let secret = BfvSecretKey::new();
 
         let m = vec![1];

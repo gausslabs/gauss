@@ -45,6 +45,36 @@ pub fn backward<
     izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.backward(r.as_mut()));
 }
 
+pub fn backward_lazy<
+    Scalar: UnsignedInteger,
+    M: MatrixMut<MatElement = Scalar>,
+    N: Ntt<Scalar = Scalar>,
+>(
+    p: &mut M,
+    ntt_ops: &[N],
+) where
+    <M as Matrix>::R: RowMut,
+{
+    izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.backward_lazy(r.as_mut()));
+}
+
+/// Input polynomials coefficents are in rnage [0, 2qi). Reduces coefficients to
+/// [0,qi) in-place.
+pub fn reduce_from_lazy_mut<
+    Scalar: UnsignedInteger,
+    MMut: MatrixMut<MatElement = Scalar>,
+    ModOps: ModulusVecBackend<Scalar>,
+>(
+    q: &mut MMut,
+    modq_ops: &[ModOps],
+) where
+    <MMut as Matrix>::R: RowMut,
+{
+    izip!(q.iter_rows_mut(), modq_ops.iter()).for_each(|(r, modqi)| {
+        modqi.reduce_from_lazy_vec(r.as_mut());
+    });
+}
+
 /// Inputs are assumed to be in Evaluation representation
 pub fn mul_lazy_mut<
     T: UnsignedInteger,
@@ -142,6 +172,30 @@ pub fn sub_mut<
     });
 }
 
+pub fn sub_lazy_mut<
+    Scalar: UnsignedInteger,
+    MRef: Matrix<MatElement = Scalar>,
+    MMut: MatrixMut<MatElement = Scalar>,
+    ModOps: ModulusVecBackend<Scalar>,
+>(
+    q0: &mut MMut,
+    q1: &MRef,
+    modq_ops: &[ModOps],
+) where
+    <MMut as Matrix>::R: RowMut,
+{
+    debug_assert!(
+        q0.dimension() == q1.dimension(),
+        "Input matrices have unequal dimensions: {:#?}!={:#?}",
+        q0.dimension(),
+        q1.dimension()
+    );
+
+    izip!(q0.iter_rows_mut(), q1.iter_rows(), modq_ops.iter()).for_each(|(r0, r1, modqi)| {
+        modqi.sub_lazy_mod_vec(r0.as_mut(), r1.as_ref());
+    });
+}
+
 pub fn neg_mut<
     Scalar: UnsignedInteger,
     MMut: MatrixMut<MatElement = Scalar>,
@@ -154,6 +208,21 @@ pub fn neg_mut<
 {
     izip!(q.iter_rows_mut(), modq_ops.iter()).for_each(|(r, modqi)| {
         modqi.neg_mod_vec(r.as_mut());
+    });
+}
+
+pub fn neg_lazy_mut<
+    Scalar: UnsignedInteger,
+    MMut: MatrixMut<MatElement = Scalar>,
+    ModOps: ModulusVecBackend<Scalar>,
+>(
+    q: &mut MMut,
+    modq_ops: &[ModOps],
+) where
+    <MMut as Matrix>::R: RowMut,
+{
+    izip!(q.iter_rows_mut(), modq_ops.iter()).for_each(|(r, modqi)| {
+        modqi.neg_lazy_mod_vec(r.as_mut());
     });
 }
 
@@ -271,6 +340,7 @@ pub fn switch_crt_basis<
         )
         .map(|(qx_i, v, modqi, one_over_qi_value)| {
             // qx_i * {q/q_i}^{-1}_q_i \mod{q_i}
+
             let v = modqi.mul_mod_fast(*qx_i, *v);
 
             // To calculate \mu:
@@ -305,6 +375,8 @@ pub fn switch_crt_basis<
     }
 }
 
+/// Input q_in can have lazy coefficients. Output p_out_lazy has lazy
+/// coefficients
 pub fn approximate_switch_crt_basis<
     // `num_traits::AsPrimitive<u128> + num_traits::PrimInt,` are a consquenece of BarrettBackend
     // trait. Check issue #12
@@ -313,7 +385,7 @@ pub fn approximate_switch_crt_basis<
     MMut: MatrixMut<MatElement = S>,
     ModOp: ModulusVecBackend<S> + BarrettBackend<S, u128> + MontgomeryBackend<S, u128>,
 >(
-    p_out: &mut MMut,
+    p_out_lazy: &mut MMut,
     q_in: &M,
     q_over_qi_inv_modqi: &[S],
     q_over_qi_per_modpj: &[Vec<MontgomeryScalar<S>>],
@@ -321,17 +393,25 @@ pub fn approximate_switch_crt_basis<
     modp_operators: &[ModOp],
     ring_size: usize,
     p_size: usize,
+    q_size: usize,
 ) where
     <MMut as Matrix>::R: RowMut,
     u128: AsPrimitive<S>,
 {
+    debug_assert!(p_out_lazy.dimension() == (p_size, ring_size));
+    debug_assert!(q_in.dimension() == (q_size, ring_size));
+    debug_assert!(modq_operators.len() == q_size);
+    debug_assert!(modp_operators.len() == p_size);
+    debug_assert!(q_over_qi_inv_modqi.len() == q_size);
+    debug_assert!(q_over_qi_per_modpj.len() == p_size);
+
     for ri in 0..ring_size {
         let q_values = izip!(
             modq_operators.iter(),
             q_in.get_col_iter(ri),
             q_over_qi_inv_modqi.iter()
         )
-        .map(|(modqi, x_qi, q_over_qi_inv)| modqi.mul_mod_fast(*x_qi, *q_over_qi_inv))
+        .map(|(modqi, x_qi, q_over_qi_inv)| modqi.mul_mod_fast_lazy(*x_qi, *q_over_qi_inv))
         .collect_vec();
 
         for j in 0..p_size {
@@ -340,20 +420,27 @@ pub fn approximate_switch_crt_basis<
             // map q_values to mont space \mod pj
             let q_vals_in_mont = q_values
                 .iter()
-                .map(|v| modpj.normal_to_mont_space(*v))
+                .map(|v| modpj.normal_to_mont_space_lazy(*v))
                 .collect_vec();
 
             // fma q_over_qi_modpj
             let x = modpj.mont_fma(&q_vals_in_mont, &q_over_qi_per_modpj[j]);
 
             // map from mont to normal
-            let x = modpj.mont_to_normal(x);
+            let x = modpj.mont_to_normal_lazy(x);
 
-            p_out.set(j, ri, x);
+            p_out_lazy.set(j, ri, x);
         }
     }
 }
 
+/// Input polynomials can have lazy coefficients. We assume input polynomial
+/// part of subbasis Q is in evaluation form and part of subbasis P is in
+/// coefficient form. Output poylnomial in basis Q will have lazy coefficients
+/// and is in evaluation representation
+///
+/// Input polynmial x \in R_QP outputs its scaled representation ((1/P) x) \in
+/// R_Q.
 pub fn approximate_mod_down<
     // `num_traits::AsPrimitive<u128> + num_traits::PrimInt,` are a consquenece of BarrettBackend
     // trait. Check issue #12
@@ -363,15 +450,15 @@ pub fn approximate_mod_down<
     ModOp: ModulusVecBackend<S> + BarrettBackend<S, u128> + MontgomeryBackend<S, u128>,
     NttOp: Ntt<Scalar = S>,
 >(
-    q_out_eval: &mut MMut,
+    q_out_eval_lazy: &mut MMut,
     q_in_eval: &M,
     p_in: &M,
-    p_over_pj_modpj: &[S],
+    p_over_pj_inv_modpj: &[S],
     p_over_pj_per_modqi: &[Vec<MontgomeryScalar<S>>],
     p_inv_modqi: &[S],
     modq_operators: &[ModOp],
     modp_operators: &[ModOp],
-    p_nttops: &[NttOp],
+    q_nttops: &[NttOp],
     ring_size: usize,
     q_size: usize,
     p_size: usize,
@@ -379,27 +466,39 @@ pub fn approximate_mod_down<
     <MMut as Matrix>::R: RowMut,
     u128: AsPrimitive<S>,
 {
+    debug_assert!(q_out_eval_lazy.dimension() == (q_size, ring_size));
+    debug_assert!(q_in_eval.dimension() == (q_size, ring_size));
+    debug_assert!(p_in.dimension() == (p_size, ring_size));
+    debug_assert!(q_nttops.len() == q_size);
+    debug_assert!(modq_operators.len() == q_size);
+    debug_assert!(modp_operators.len() == p_size);
+    debug_assert!(p_inv_modqi.len() == q_size);
+    debug_assert!(p_over_pj_inv_modpj.len() == p_size);
+    debug_assert!(p_over_pj_per_modqi.len() == q_size);
+
     // Switch P subbasis to Q
     approximate_switch_crt_basis(
-        q_out_eval,
+        q_out_eval_lazy,
         p_in,
-        p_over_pj_modpj,
+        p_over_pj_inv_modpj,
         p_over_pj_per_modqi,
         modp_operators,
         modq_operators,
         ring_size,
         q_size,
+        p_size,
     );
-    foward(q_out_eval, p_nttops);
+    foward_lazy(q_out_eval_lazy, q_nttops);
 
-    sub_mut(q_out_eval, q_in_eval, modq_operators);
+    neg_lazy_mut(q_out_eval_lazy, modq_operators);
+    add_lazy_mut(q_out_eval_lazy, q_in_eval, modq_operators);
 
     izip!(
         modq_operators.iter(),
-        q_out_eval.iter_rows_mut(),
+        q_out_eval_lazy.iter_rows_mut(),
         p_inv_modqi.iter()
     )
-    .for_each(|(modqi, x_qi, p_inv_qi)| modqi.scalar_mul_mod_vec(x_qi.as_mut(), *p_inv_qi));
+    .for_each(|(modqi, x_qi, p_inv_qi)| modqi.scalar_mul_lazy_mod_vec(x_qi.as_mut(), *p_inv_qi));
 }
 
 /// Simple scale and round procedure. Given input polynomial x \in R_Q it
@@ -572,12 +671,13 @@ mod tests {
     use crate::{
         core_crypto::{
             modulus::{ModulusBackendConfig, NativeModulusBackend},
+            ntt::NativeNTTBackend,
             prime::generate_primes_vec,
             random::{DefaultU64SeededRandomGenerator, RandomUniformDist, DEFAULT_U64_SEEDED_RNG},
         },
         utils::{
             convert::{TryConvertFrom, TryConvertFromParts},
-            mod_inverse, moduli_chain_to_biguint,
+            mod_inverse, mod_inverse_big_unit, moduli_chain_to_biguint,
         },
     };
 
@@ -768,6 +868,122 @@ mod tests {
                 (p0 - p1).bits()
             };
             assert!(bits == 0);
+        });
+    }
+
+    #[test]
+    fn approximate_mod_down_works() {
+        let n = 1 << 4;
+        let q_chain = generate_primes_vec(&[60; 3], n, &[]);
+        let p_chain = generate_primes_vec(&[60; 6], n, &q_chain);
+
+        let big_q = moduli_chain_to_biguint(&q_chain);
+        let big_p = moduli_chain_to_biguint(&p_chain);
+
+        // we will scale a polnoymial x \in R_PQ by 1/Q and get its representation 1/Q x
+        // \in R_P
+        let modq_operators = q_chain
+            .iter()
+            .map(|qi| NativeModulusBackend::initialise(*qi))
+            .collect_vec();
+        let modp_operators = p_chain
+            .iter()
+            .map(|pi| NativeModulusBackend::initialise(*pi))
+            .collect_vec();
+        let modq_nttops = q_chain
+            .iter()
+            .map(|qi| NativeNTTBackend::init(*qi, n))
+            .collect_vec();
+        let modp_nttops = p_chain
+            .iter()
+            .map(|pi| NativeNTTBackend::init(*pi, n))
+            .collect_vec();
+
+        // precomputes
+        // approximate_switch_crt_basis
+        // q/qi and [{q/qi}^{-1}]_q_i
+        let (q_over_qi, q_over_qi_inv_modqi): (Vec<BigUint>, Vec<u64>) = q_chain
+            .iter()
+            .map(|qi| {
+                let q_over_qi = &big_q / qi;
+                let q_over_qi_inv_modqi = mod_inverse((&q_over_qi % qi).to_u64().unwrap(), *qi);
+                (q_over_qi, q_over_qi_inv_modqi)
+            })
+            .unzip();
+        let q_over_qi_per_modpj = modp_operators
+            .iter()
+            .map(|modpj| {
+                q_over_qi
+                    .iter()
+                    .map(|v| modpj.normal_to_mont_space((v % modpj.modulus).to_u64().unwrap()))
+                    .collect_vec()
+            })
+            .collect_vec();
+        // approximate mod down
+        let q_inv_modpj = p_chain
+            .iter()
+            .map(|pj| {
+                mod_inverse_big_unit(&big_q, &BigUint::from_u64(*pj).unwrap())
+                    .to_u64()
+                    .unwrap()
+            })
+            .collect_vec();
+
+        let mut test_rng = DefaultU64SeededRandomGenerator::new();
+
+        // P U Q
+        let mut poly_q_in = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
+        let mut poly_p_in = <Vec<Vec<u64>> as Matrix>::zeros(p_chain.len(), n);
+        RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &q_chain, &mut poly_q_in);
+        RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &p_chain, &mut poly_p_in);
+
+        let mut poly_p_in_eval_lazy = poly_p_in.clone();
+        foward_lazy(&mut poly_p_in_eval_lazy, &modp_nttops);
+
+        let mut poly_p_out_eval_lazy = Vec::<Vec<u64>>::zeros(p_chain.len(), n);
+
+        approximate_mod_down(
+            &mut poly_p_out_eval_lazy,
+            &poly_p_in_eval_lazy,
+            &poly_q_in,
+            &q_over_qi_inv_modqi,
+            &q_over_qi_per_modpj,
+            &q_inv_modpj,
+            &modp_operators,
+            &modq_operators,
+            &modp_nttops,
+            n,
+            p_chain.len(),
+            q_chain.len(),
+        );
+        // reduce_from_lazy_mut(&mut poly_p_out_eval_lazy, &modp_operators);
+        backward(&mut poly_p_out_eval_lazy, &modp_nttops);
+        let poly_p_out = Vec::<BigUint>::try_convert_from(&poly_p_out_eval_lazy, &p_chain);
+
+        let poly_pq_biguint =
+            Vec::<BigUint>::try_convert_with_two_parts(&poly_p_in, &poly_q_in, &p_chain, &q_chain);
+
+        // [1/Q * x]_P
+        let big_pq = &big_p * &big_q;
+        let poly_p_biguint_expected = poly_pq_biguint
+            .iter()
+            .map(|qxi| {
+                if qxi >= &(&big_pq >> 1) {
+                    let v = ((&big_pq - qxi) + (&big_q >> 1)) / &big_q;
+                    &big_p - (v % &big_p)
+                } else {
+                    ((qxi + (&big_q >> 1)) / &big_q) % &big_p
+                }
+            })
+            .collect_vec();
+
+        izip!(poly_p_out.iter(), poly_p_biguint_expected).for_each(|(p0, p1)| {
+            let bits = if p0 < &p1 {
+                (p1 - p0).bits()
+            } else {
+                (p0 - p1).bits()
+            };
+            assert!(bits <= 3);
         });
     }
 
