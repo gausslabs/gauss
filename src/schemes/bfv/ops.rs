@@ -9,13 +9,10 @@ use crate::{
         modulus::ModulusVecBackend,
         ntt::Ntt,
         num::UnsignedInteger,
-        random::{
-            RandomGaussianDist, RandomSecretByteGenerator, RandomSecretValueGenerator,
-            RandomUniformDist,
-        },
+        random::{RandomGaussianDist, RandomUniformDist},
         ring::{
-            self, add_lazy_mut, add_mut, fast_convert_p_over_q, mul_lazy_mut, neg_mut,
-            scale_and_round, simple_scale_and_round, switch_crt_basis,
+            add_lazy_mut, add_mut, backward, fast_convert_p_over_q, foward_lazy, mul_lazy_mut,
+            neg_mut, scale_and_round, simple_scale_and_round, switch_crt_basis,
         },
     },
     keys::SecretKey,
@@ -26,48 +23,26 @@ use crate::{
     utils::convert::TryConvertFrom,
 };
 
-fn foward_lazy<
-    Scalar: UnsignedInteger,
-    Poly: MatrixMut<MatElement = Scalar>,
-    N: Ntt<Scalar = Scalar>,
->(
-    p: &mut Poly,
-    ntt_ops: &[N],
-) where
-    <Poly as Matrix>::R: RowMut,
-{
-    izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.forward_lazy(r.as_mut()));
-}
-
-fn backward<
-    Scalar: UnsignedInteger,
-    Poly: MatrixMut<MatElement = Scalar>,
-    N: Ntt<Scalar = Scalar>,
->(
-    p: &mut Poly,
-    ntt_ops: &[N],
-) where
-    <Poly as Matrix>::R: RowMut,
-{
-    izip!(p.iter_rows_mut(), ntt_ops.iter()).for_each(|(r, nttop)| nttop.backward(r.as_mut()));
-}
-
 pub fn generate_ternery_secret_with_hamming_weight<
     Scalar: Signed + Clone,
-    R: RandomSecretByteGenerator + RandomSecretValueGenerator<usize>,
+    R: RandomUniformDist<[u8], Parameters = u8>
+        + RandomUniformDist<usize, Parameters = usize>
+        + CryptoRng,
 >(
     rng: &mut R,
     hamming_weight: usize,
     ring_size: usize,
 ) -> Vec<Scalar> {
-    let mut bytes = rng.random_bytes(hamming_weight.div_ceil(8));
+    let mut bytes = vec![0u8; (hamming_weight.div_ceil(8)) as usize];
+    RandomUniformDist::random_fill(rng, &0u8, bytes.as_mut_slice());
 
     let mut secret = vec![Scalar::zero(); ring_size];
     let mut secret_indices = (0..ring_size).into_iter().collect_vec();
     let mut bit_index = 0;
     let mut byte_index = 0;
     for _ in 0..hamming_weight {
-        let secret_index = rng.random_value_in_range(secret_indices.len());
+        let mut secret_index = 0usize;
+        rng.random_fill(&secret_indices.len(), &mut secret_index);
 
         if bytes[byte_index] & 1u8 == 1 {
             secret[secret_indices[secret_index]] = Scalar::one();
@@ -140,13 +115,14 @@ pub fn simd_decode_message<
 }
 
 pub fn secret_key_encryption<
-    
     Scalar: UnsignedInteger,
     Poly: MatrixMut<MatElement = Scalar>,
     S: SecretKey<Scalar = i32>,
     P: BfvEncryptionParameters<Scalar = Scalar>,
     C: RlweCiphertext<Poly = Poly> + InitialiseLevelledCiphertext<C = Vec<Poly>>,
-    R: RandomUniformDist<Scalar, Poly> + RandomGaussianDist<Scalar, Poly> + CryptoRng,
+    R: RandomUniformDist<Poly, Parameters = [Scalar]>
+        + RandomGaussianDist<Poly, Parameters = [Scalar]>
+        + CryptoRng,
 >(
     secret: &S,
     message: &[Scalar],
@@ -183,29 +159,31 @@ where
     });
 
     let q_moduli_chain = parameters.q_moduli_chain_at_level(level);
-    let mut s = <C::Poly>::try_convert_from(&secret.values(), &q_moduli_chain);
-    let mut a = RandomUniformDist::random_ring_poly(rng, q_moduli_chain, ring_size);
+    let mut s = Poly::try_convert_from(&secret.values(), &q_moduli_chain);
+    let mut a_eval = Poly::zeros(q_moduli_chain.len(), ring_size);
+    RandomUniformDist::random_fill(rng, q_moduli_chain, &mut a_eval);
 
     // a*s
     let ntt_ops = parameters.basisq_ntt_ops_at_level(level);
     foward_lazy(&mut s, ntt_ops);
-    foward_lazy(&mut a, ntt_ops);
-    mul_lazy_mut(&mut s, &a, modq_ops);
+    mul_lazy_mut(&mut s, &a_eval, modq_ops);
 
     backward(&mut s, ntt_ops);
-    backward(&mut a, ntt_ops);
 
     // a*s + e
-    let e = RandomGaussianDist::random_ring_poly(rng, q_moduli_chain, ring_size);
+    let mut e = Poly::zeros(q_moduli_chain.len(), ring_size);
+    RandomGaussianDist::random_fill(rng, q_moduli_chain, &mut e);
     add_mut(&mut s, &e, modq_ops);
 
     // a*s + e + \Delta m
     add_mut(&mut s, &m, modq_ops);
 
     // -a
-    neg_mut(&mut a, modq_ops);
+    backward(&mut a_eval, ntt_ops);
+    let mut neg_a = a_eval;
+    neg_mut(&mut neg_a, modq_ops);
 
-    let c = vec![s, a];
+    let c = vec![s, neg_a];
     InitialiseLevelledCiphertext::new(c, level, Representation::Coefficient)
 }
 

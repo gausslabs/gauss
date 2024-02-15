@@ -9,7 +9,7 @@ use rand::{
     CryptoRng, Rng, RngCore,
 };
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct NativeModulusBackend {
     pub(crate) modulus: u64,
     twice_modulus: u64,
@@ -99,9 +99,31 @@ impl ModulusVecBackend<u64> for NativeModulusBackend {
         })
     }
 
+    fn reduce_from_lazy_vec(&self, a: &mut [u64]) {
+        izip!(a.iter_mut()).for_each(|(a0)| {
+            debug_assert!(
+                *a0 < self.twice_modulus,
+                "Input {a0} >= (2*modulus){}",
+                self.twice_modulus
+            );
+
+            let modulus = self.modulus;
+
+            if *a0 >= modulus {
+                *a0 = *a0 - modulus;
+            }
+        })
+    }
+
     fn neg_mod_vec(&self, a: &mut [u64]) {
         izip!(a.iter_mut()).for_each(|(a0)| {
             *a0 = self.neg_mod_fast(*a0);
+        })
+    }
+
+    fn neg_lazy_mod_vec(&self, a: &mut [u64]) {
+        izip!(a.iter_mut()).for_each(|(a0)| {
+            *a0 = self.neg_lazy_mod_fast(*a0);
         })
     }
 
@@ -137,7 +159,19 @@ impl ModulusVecBackend<u64> for NativeModulusBackend {
         })
     }
 
+    fn sub_lazy_mod_vec(&self, a: &mut [u64], b: &[u64]) {
+        izip!(a.iter_mut(), b.iter()).for_each(|(a0, b0)| {
+            *a0 = self.sub_lazy_mod_fast(*a0, *b0);
+        })
+    }
+
     fn scalar_mul_mod_vec(&self, a: &mut [u64], b: u64) {
+        a.iter_mut().for_each(|a0| {
+            *a0 = self.mul_mod_fast(*a0, b);
+        })
+    }
+
+    fn scalar_mul_lazy_mod_vec(&self, a: &mut [u64], b: u64) {
         a.iter_mut().for_each(|a0| {
             *a0 = self.mul_mod_fast_lazy(*a0, b);
         })
