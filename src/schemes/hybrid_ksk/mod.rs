@@ -397,9 +397,9 @@ mod tests {
         let hybrid_ksk_params = {
             // Setup //
             let ring_size = 1 << 3;
-            let q_moduli_chain_sizes = vec![50, 50, 50, 50, 40, 50, 40];
+            let q_moduli_chain_sizes = vec![60, 60, 60, 60, 50, 40, 50];
             let dnum = 2;
-            let specialp_moduli_chain_sizes = vec![50, 50, 50];
+            let specialp_moduli_chain_sizes = vec![60, 60, 50];
 
             let q_moduli_chain = &generate_primes_vec(&q_moduli_chain_sizes, ring_size, &[]);
             let specialp_moduli_chain =

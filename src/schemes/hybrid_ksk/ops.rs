@@ -310,8 +310,10 @@ pub fn keyswitch<
             let mut q_values = Vec::with_capacity(end - start);
             for j in start..end {
                 q_values.push(
-                    q_modops[j]
-                        .mul_mod_fast(*x.get_element(j, ri), qj_over_qji_inv_modqji[j - start]),
+                    q_modops[j].mul_mod_fast_lazy(
+                        *x.get_element(j, ri),
+                        qj_over_qji_inv_modqji[j - start],
+                    ),
                 );
             }
 
@@ -326,11 +328,11 @@ pub fn keyswitch<
                 // map q_values to mont space
                 let q_in_mont_space = q_values
                     .iter()
-                    .map(|v| modqi.normal_to_mont_space(*v))
+                    .map(|v| modqi.normal_to_mont_space_lazy(*v))
                     .collect_vec();
 
                 let tmp = modqi.mont_fma(&q_in_mont_space, &qj_over_qji_modqi);
-                let tmp = modqi.mont_to_normal(tmp);
+                let tmp = modqi.mont_to_normal_lazy(tmp);
                 q_till_start.set(index, ri, tmp)
             }
 
@@ -345,11 +347,11 @@ pub fn keyswitch<
                 // map q_values to mont space
                 let q_in_mont_space = q_values
                     .iter()
-                    .map(|v| modqi.normal_to_mont_space(*v))
+                    .map(|v| modqi.normal_to_mont_space_lazy(*v))
                     .collect_vec();
 
                 let tmp = modqi.mont_fma(&q_in_mont_space, &qj_over_qji_modqi);
-                let tmp = modqi.mont_to_normal(tmp);
+                let tmp = modqi.mont_to_normal_lazy(tmp);
                 q_from_end.set(index, ri, tmp)
             }
 
@@ -364,11 +366,11 @@ pub fn keyswitch<
                 // map q_values to mont space
                 let q_in_mont_space = q_values
                     .iter()
-                    .map(|v| modpj.normal_to_mont_space(*v))
+                    .map(|v| modpj.normal_to_mont_space_lazy(*v))
                     .collect_vec();
 
                 let tmp = modpj.mont_fma(&q_in_mont_space, &qj_over_qji_modpj);
-                let tmp = modpj.mont_to_normal(tmp);
+                let tmp = modpj.mont_to_normal_lazy(tmp);
                 specialp_all.set(index, ri, tmp);
             }
         }
