@@ -1,3 +1,5 @@
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use rand_distr::{Distribution, Normal};
 
 /// `TruncatedDiscreteGaussian` represents the parameters of a truncated discrete Gaussian distribution with:
@@ -10,10 +12,10 @@ struct TruncatedDiscreteGaussian {
     bound: i64,
 }
 
-/// TODO: this struct is likely to contain further fields in the future
 #[derive(Clone, Debug)]
 struct GaussianSampler {
     params: TruncatedDiscreteGaussian,
+    rng: ChaCha20Rng,
 }
 
 impl GaussianSampler {
@@ -21,27 +23,22 @@ impl GaussianSampler {
     pub fn new(sigma: f64) -> Self {
         assert!(sigma > 0.0, "sigma must be positive");
         let bound = (6.0 * sigma).round() as i64;
+        let rng = ChaCha20Rng::from_entropy();
         Self {
             params: TruncatedDiscreteGaussian { sigma, bound },
+            rng,
         }
-    }
-    /// `norm_f64` returns a normally distributed f64 in
-    /// the range [-f64::MAX, f64::MAX], bounds included,
-    /// with standard normal distribution (mean = 0, std_dev = 1).
-    fn norm_f64(&self) -> f64 {
-        let normal = Normal::new(0.0, 1.0).unwrap();
-        normal.sample(&mut rand::thread_rng())
     }
 
     /// `sample` returns a sample from the truncated discrete Gaussian distribution.
     /// The technique used is patterned after [lattigo](https://github.com/tuneinsight/lattigo/blob/c031b14be1fb3697945709d7afbed264fa845442/ring/sampler_gaussian.go#L71).
-    /// In particular, `norm` is sampled from the standard normal distribution of mean 0 and standard deviation 1.
-    /// The `norm` is then scaled by `sigma` and, if the result is within the bounds, it is rounded and returned.
-    pub fn sample(&self) -> i64 {
-        let norm = self.norm_f64();
-        let scaled = norm * self.params.sigma;
-        if scaled.abs() < self.params.bound as f64 {
-            scaled.round() as i64
+    /// In particular, `sampled_val` is sampled from a normal distribution with mean 0 and standard deviation `sigma`.
+    /// If `sampled_val` is within the bounds, it is rounded and returned.
+    pub fn sample(&mut self) -> i64 {
+        let discrete_normal = Normal::new(0.0, self.params.sigma).unwrap();
+        let sampled_val = discrete_normal.sample(&mut self.rng);
+        if sampled_val.abs() < self.params.bound as f64 {
+            sampled_val.round() as i64
         } else {
             self.sample()
         }
@@ -56,11 +53,9 @@ mod tests {
     fn gaussian_sampler_truncation_limit() {
         // Assert that the samples are within the bounds of the truncated Gaussian distribution.
         let sigma = rand::thread_rng().gen_range(1.0..=100.0);
-        let sampler = GaussianSampler::new(sigma);
+        let mut sampler = GaussianSampler::new(sigma);
 
         for _ in 0..5000000 {
-            let norm = sampler.norm_f64();
-            assert!((f64::MIN..=f64::MAX).contains(&norm));
             let sample = sampler.sample();
             assert!((-sampler.params.bound..=sampler.params.bound).contains(&sample));
         }
@@ -70,7 +65,7 @@ mod tests {
     fn gaussian_sampler_mean() {
         // Assert that the mean of the samples is close to 0.
         let sigma = rand::thread_rng().gen_range(1.0..=100.0);
-        let sampler = GaussianSampler::new(sigma);
+        let mut sampler = GaussianSampler::new(sigma);
 
         let mut sum = 0;
         let n = 5000000;
@@ -86,7 +81,7 @@ mod tests {
         // Assert that the probability mass function for a random `x` observed by performing sample on the `sampler`
         // is consistent with the expected distribution.
         let sigma = rand::thread_rng().gen_range(1.0..=100.0);
-        let sampler = GaussianSampler::new(sigma);
+        let mut sampler = GaussianSampler::new(sigma);
         let val = rand::thread_rng().gen_range(-sampler.params.bound..=sampler.params.bound);
 
         let pmf_expected = (1.0 / ((2.0 * std::f64::consts::PI).sqrt() * sampler.params.sigma))
