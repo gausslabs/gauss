@@ -1,3 +1,4 @@
+pub mod guassian_sampler;
 pub mod matrix;
 pub mod modulus;
 pub mod ntt;
