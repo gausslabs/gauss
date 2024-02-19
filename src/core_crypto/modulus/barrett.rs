@@ -1,16 +1,19 @@
+use std::iter::Scan;
+
 use super::UnsignedInteger;
-use num_traits::AsPrimitive;
+use num_traits::{AsPrimitive, PrimInt};
 
 pub trait BarrettBackend<Scalar, ScalarDoubled>
 where
-    Scalar: UnsignedInteger + AsPrimitive<ScalarDoubled> + AsPrimitive<u128> + 'static,
+    Scalar: UnsignedInteger + AsPrimitive<ScalarDoubled> + AsPrimitive<u128> + 'static + PrimInt,
     u128: AsPrimitive<Scalar>,
     ScalarDoubled: UnsignedInteger + AsPrimitive<Scalar> + 'static,
 {
     /// Precomputes modulus specific barrett constant.
     /// We set \alpha = n + 3. Thus \mu = 2^{2*n+3}/modulus
     fn precompute_alpha_and_barrett_constant(modulus: Scalar) -> (usize, Scalar) {
-        //TODO (Jay): Move barrett pre-compute in its own trait (like MontgomeryBackendConfig)
+        //TODO (Jay): Move barrett pre-compute in its own trait (like
+        // MontgomeryBackendConfig)
         let modulus_bits = Scalar::BITS - modulus.leading_zeros();
 
         let mu = (1u128 << (modulus_bits * 2 + 3)) / <Scalar as AsPrimitive<u128>>::as_(modulus);
@@ -19,71 +22,42 @@ where
 
     fn modulus(&self) -> Scalar;
 
+    fn modulus_twice(&self) -> Scalar;
+
     fn modulus_bits(&self) -> usize;
 
     fn barrett_constant(&self) -> Scalar;
 
     fn barrett_alpha(&self) -> usize;
 
-    fn add_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
-        debug_assert!(
-            a < self.modulus(),
-            "Input {a} > (modulus){}",
-            self.modulus()
-        );
-        debug_assert!(
-            b < self.modulus(),
-            "Input {b} >= (modulus){}",
-            self.modulus()
-        );
-
-        let mut c = a + b;
-        if c >= self.modulus() {
-            c -= self.modulus();
-        }
-        c
-    }
-
-    fn sub_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
-        debug_assert!(
-            a < self.modulus(),
-            "Input {a} >= (modulus){}",
-            self.modulus()
-        );
-        debug_assert!(
-            b < self.modulus(),
-            "Input {b} >= (modulus){}",
-            self.modulus()
-        );
-
-        if a >= b {
-            a - b
-        } else {
-            (a + self.modulus()) - b
-        }
+    fn barrett_reduce(&self, a: Scalar) -> Scalar {
+        // TODO (Jay): replace this by barrett reduce routine
+        a % self.modulus()
     }
 
     /// Barrett modular multiplication with pre-compute constant \mu
     ///
-    /// Both a and b are < q.
+    /// Both a and b are < 2q and out is in < 2q
     ///
     /// We implement the generalized barrett reduction
     /// formula described as Algorithm 2 of the this [paper](https://homes.esat.kuleuven.be/~fvercaut/papers/bar_mont.pdf).
-    /// Assuming \log(ab) < 2*n + 3, \gamma < n + 2. Since for correctness \alpha should be \ge (\gamma + 1) and \beta <= -2,
-    /// we set \alpha as (n + 3) and \beta as -2.
+    /// Assuming \log(ab) < 2*n + 3, \gamma < n + 2. Since for correctness
+    /// \alpha should be \ge (\gamma + 1) and \beta <= -2, we set \alpha as
+    /// (n + 3) and \beta as -2.
     ///
     /// * [Implementation reference](https://github.com/openfheorg/openfhe-development/blob/c48c41cf7893feb94f09c7d95284a36145ec0d5e/src/core/include/math/hal/intnat/ubintnat.h#L1417)
-    /// * Note 1: It is possible to do the same without using `ScalarDoubled` (i.e. without u128s in case of u64s).
-    fn mul_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
+    /// * Note 1: It is possible to do the same without using `ScalarDoubled`
+    ///   (i.e. without u128s in case of u64s).
+    fn mul_mod_fast_lazy(&self, a: Scalar, b: Scalar) -> Scalar {
         debug_assert!(
-            a < (self.modulus() * (Scalar::one() + Scalar::one() + Scalar::one() + Scalar::one())),
-            "Input {a} >= (2*modulus){}",
-            self.modulus()
+            a < self.modulus_twice(),
+            "Input {a} > (2*modulus){}",
+            self.modulus_twice()
         );
         debug_assert!(
-            b < (self.modulus() * (Scalar::one() + Scalar::one() + Scalar::one() + Scalar::one())),
-            "Input {b} >= (2*modulus){}",
-            self.modulus()
+            b < self.modulus_twice(),
+            "Input {b} > (2*modulus){}",
+            self.modulus_twice()
         );
 
         // a*b
@@ -99,12 +73,19 @@ where
 
         // ab - q*p
         let tmp = q * self.modulus().as_();
-        let mut res = (ab - tmp).as_();
+        let res = (ab - tmp).as_();
 
+        res
+    }
+
+    /// Barrett modular multiplication
+    ///
+    /// Inputs are in range [0, 2q] and output is in range [0, q]
+    fn mul_mod_fast(&self, a: Scalar, b: Scalar) -> Scalar {
+        let mut res = self.mul_mod_fast_lazy(a, b);
         if res >= self.modulus() {
             res -= self.modulus();
         }
-
         res
     }
 }

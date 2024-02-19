@@ -1,5 +1,29 @@
-use crate::core_crypto::modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend};
-use std::mem;
+use num_bigint::{BigInt, BigUint, ToBigUint};
+use num_traits::{FromPrimitive, One, ToBytes, ToPrimitive, Zero};
+
+use crate::core_crypto::{
+    modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend},
+    num::UnsignedInteger,
+};
+use std::{
+    mem,
+    ops::{Add, Mul, Sub},
+    sync::Arc,
+};
+
+use std::cell::RefCell;
+
+pub(crate) mod convert;
+#[cfg(test)]
+pub(crate) mod test_utils;
+
+struct Mdo<S> {
+    f: S,
+}
+
+thread_local! {
+    static X: RefCell<Arc<Mdo<u64>>> = panic!("!");
+}
 
 pub trait FastModularInverse {
     /// Calculates modular inverse of `a` in `Self`
@@ -65,21 +89,31 @@ impl FastModularInverse for u32 {
 /// Calculates a^n \mod{q} using binary exponentation
 /// TODO (Jay): Add tests for modular expoents
 pub fn mod_exponent(a: u64, mut n: u64, q: u64) -> u64 {
-    let mut a_prod = a;
-    let mut a_n = 1;
+    // let mut a_prod = a;
+    // let mut a_n = 1;
 
-    let modulus = NativeModulusBackend::initialise(q);
+    // let modulus = NativeModulusBackend::initialise(q);
 
-    while n > 0 {
-        if n & 1 == 1 {
-            a_n = modulus.mul_mod_fast(a_prod, a_n);
-        }
-        a_prod = modulus.mul_mod_fast(a_prod, a_prod);
+    // while n > 0 {
+    //     if n & 1 == 1 {
+    //         a_n = modulus.mul_mod_fast_lazy(a_prod, a_n);
+    //     }
+    //     a_prod = modulus.mul_mod_fast_lazy(a_prod, a_prod);
 
-        n = n >> 1u32;
-    }
+    //     n = n >> 1u32;
+    // }
 
-    a_n
+    //TODO(Jay): Implmentation above is buggy. Fix the implementation and add tests
+
+    let expected_an = num_bigint_dig::BigUint::modpow(
+        &num_bigint_dig::BigUint::from_u64(a).unwrap(),
+        &num_bigint_dig::BigUint::from_u64(n).unwrap(),
+        &num_bigint_dig::BigUint::from_u64(q).unwrap(),
+    );
+
+    // assert_eq!(expected_an.to_u64().unwrap(), a_n);
+
+    expected_an.to_u64().unwrap()
 }
 
 /// Calculates modular inverse `a^{-1}` of `a` s.t. a * a^{-1} = 1 \mod{q}
@@ -89,8 +123,23 @@ pub fn mod_inverse(a: u64, q: u64) -> u64 {
     mod_exponent(a, q - 2, q)
 }
 
+pub fn mod_inverse_big_unit(a: &BigUint, b: &BigUint) -> BigUint {
+    use num_bigint_dig::BigUint as BigUintDig;
+    use num_bigint_dig::ModInverse;
+
+    let a_dig = BigUintDig::from_bytes_le(&a.to_le_bytes());
+    let b_dig = BigUintDig::from_bytes_le(&b.to_le_bytes());
+    let inv = a_dig
+        .mod_inverse(&b_dig)
+        .expect("Modular inverse a^{-1} s.t. a * a^{-1} = 1 mod b does not exist")
+        .to_biguint()
+        .unwrap();
+    BigUint::from_bytes_le(&inv.to_bytes_le())
+}
+
 /// Extended GCD algorithm. The funciton calculates the GCD of a & b
-/// and two new variables x & y that satisy ax + by == gcd (i.e. Bezout's identity)
+/// and two new variables x & y that satisy ax + by == gcd (i.e. Bezout's
+/// identity)
 ///
 /// Refer to attached docs for implementation details
 pub fn extended_gcd(mut a: i64, mut b: i64) -> (i64, i64, i64) {
@@ -128,6 +177,40 @@ pub fn extended_gcd(mut a: i64, mut b: i64) -> (i64, i64, i64) {
     }
 
     (r1, old_x, old_y)
+}
+
+pub fn moduli_chain_to_biguint<T: UnsignedInteger>(moduli_chain: &[T]) -> BigUint
+where
+    BigUint: From<T>,
+{
+    let mut big_q = BigUint::one();
+    moduli_chain
+        .iter()
+        .for_each(|qi| big_q *= BigUint::from(*qi));
+    big_q
+}
+
+pub fn negacyclic_mul<T: UnsignedInteger, F: Fn(&T, &T) -> T>(
+    a: &[T],
+    b: &[T],
+    mul: F,
+    modulus: T,
+) -> Vec<T> {
+    let mut r = vec![T::zero(); a.len()];
+    for i in 0..a.len() {
+        for j in 0..i + 1 {
+            // println!("i: {j} {}", i - j);
+            r[i] = (r[i] + mul(&a[j], &b[i - j])) % modulus;
+        }
+
+        for j in i + 1..a.len() {
+            // println!("i: {j} {}", a.len() - j + i);
+            r[i] = (r[i] + modulus - mul(&a[j], &b[a.len() - j + i])) % modulus;
+        }
+        // println!("")
+    }
+
+    return r;
 }
 
 #[cfg(test)]

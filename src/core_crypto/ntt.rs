@@ -1,14 +1,37 @@
-use itertools::Itertools;
+use itertools::{izip, Itertools};
 use rand::thread_rng;
 
 use crate::{core_crypto::modulus::ShoupRepresentationFq, utils::mod_inverse};
 
 use super::{
     modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend},
+    num::UnsignedInteger,
     prime::find_primitive_root,
 };
 
-/// Forward butterfly routine for Number theoretic transform. Given inputs `x < 4q` and `y < 4q` mutates x and y in place to equal x' and y' such that
+pub trait NttConfig {
+    type Scalar: UnsignedInteger;
+
+    fn init(modulus: Self::Scalar, ring_size: usize) -> Self;
+}
+
+pub trait Ntt: NttConfig {
+    /// Forward NTT of input `a` with input in range [0, 2q). Output is in range
+    /// [0, q)
+    fn forward(&self, a: &mut [Self::Scalar]);
+    /// Backward NTT of input `a` with input in range [0, 2q]. Output is in
+    /// range [0, q)
+    fn backward(&self, a: &mut [Self::Scalar]);
+    /// Forward NTT of input `a` with input in range [0, 2q). Output is in range
+    /// [0, 2q)
+    fn forward_lazy(&self, a: &mut [Self::Scalar]);
+    /// Backward NTT of input `a` with input in range [0, 2q]. Output is in
+    /// range [0, 2q)
+    fn backward_lazy(&self, a: &mut [Self::Scalar]);
+}
+
+/// Forward butterfly routine for Number theoretic transform. Given inputs `x <
+/// 4q` and `y < 4q` mutates x and y in place to equal x' and y' such that
 /// x' = x + wy
 /// y' = x - wy
 /// where both x' and y' are in range [0, 4q)
@@ -37,9 +60,9 @@ pub unsafe fn forward_butterly(
     *x = *x + t;
 }
 
-/// Inverse butterfly routine of Inverse Number theoretic transform. Given inputs `x < 2q` and `y < 2q` mutates x and y to equal x' and y' such that
-/// x' = x + y
-/// y' = w(x - y)
+/// Inverse butterfly routine of Inverse Number theoretic transform. Given
+/// inputs `x < 2q` and `y < 2q` mutates x and y to equal x' and y' such that x'
+/// = x + y y' = w(x - y)
 /// where x' and y' in range [0, 2q)
 ///
 /// We implement Algorithm 3 of [FASTER ARITHMETIC FOR NUMBER-THEORETIC TRANSFORMS](https://arxiv.org/pdf/1205.2926.pdf)
@@ -66,11 +89,12 @@ pub unsafe fn inverse_butterfly(
     *x = x_dash;
 }
 
-/// Calculates forward number theoretic transform of vector `a`. We implement forward Cooley-tukey
-/// based forward NTT as outlined in Algorithm 1 of https://eprint.iacr.org/2016/504.pdf.
+/// Number theoretic transform of vector `a` with each
+/// element in range [0, 2q).Outputs NTT(a) where each element is in range
+/// [0,2q)
 ///
-/// Outputs NTT(a) where each element is in range [0,2q)
-pub fn ntt(a: &mut [u64], psi: &[u64], psi_shoup: &[u64], q: u64, q_twice: u64) {
+/// We implement Cooley-tukey based forward NTT as given in Algorithm 1 of https://eprint.iacr.org/2016/504.pdf.
+pub fn ntt_lazy(a: &mut [u64], psi: &[u64], psi_shoup: &[u64], q: u64, q_twice: u64) {
     debug_assert!(a.len() == psi.len());
 
     let n = a.len();
@@ -105,7 +129,11 @@ pub fn ntt(a: &mut [u64], psi: &[u64], psi_shoup: &[u64], q: u64, q_twice: u64) 
     });
 }
 
-pub fn ntt_inv(
+/// Inverse number theoretic transform of input vector `a` with each element in
+/// range [0, 2q). Outputs vector INTT(a) with each element in range [0, 2q)
+///
+/// We implement backward number theorectic transform using GS algorithm as given in Algorithm 2 of https://eprint.iacr.org/2016/504.pdf
+pub fn ntt_inv_lazy(
     a: &mut [u64],
     psi_inv: &[u64],
     psi_inv_shoup: &[u64],
@@ -142,6 +170,7 @@ pub fn ntt_inv(
         .for_each(|a0| *a0 = ((*a0 as u128 * n_inv as u128) % q as u128) as u64);
 }
 
+#[derive(Default, Clone)]
 pub struct NativeNTTBackend {
     q: u64,
     q_twice: u64,
@@ -153,12 +182,15 @@ pub struct NativeNTTBackend {
     psi_inv_powers_bo_shoup: Box<[u64]>,
 }
 
-impl NativeNTTBackend {
-    pub fn new(q: u64, n: u64) -> NativeNTTBackend {
+impl NttConfig for NativeNTTBackend {
+    type Scalar = u64;
+
+    fn init(q: Self::Scalar, n: usize) -> Self {
         // \psi = 2n^{th} primitive root of unity in F_q
         let mut rng = thread_rng();
-        let psi =
-            find_primitive_root(q, n * 2, &mut rng).expect("Unable to find 2n^th root of unity");
+        let psi = find_primitive_root(q, (n * 2) as u64, &mut rng)
+            .expect("Unable to find 2n^th root of unity");
+
         let psi_inv = mod_inverse(psi, q);
 
         let modulus = NativeModulusBackend::initialise(q);
@@ -198,12 +230,12 @@ impl NativeNTTBackend {
             .collect_vec();
 
         // n^{-1} \mod{q}
-        let n_inv = mod_inverse(n, q);
+        let n_inv = mod_inverse(n as u64, q);
 
         NativeNTTBackend {
             q,
             q_twice: 2 * q,
-            n,
+            n: n as u64,
             n_inv,
             psi_powers_bo: psi_powers_bo.into_boxed_slice(),
             psi_inv_powers_bo: psi_inv_powers_bo.into_boxed_slice(),
@@ -211,9 +243,45 @@ impl NativeNTTBackend {
             psi_inv_powers_bo_shoup: psi_inv_powers_bo_shoup.into_boxed_slice(),
         }
     }
+}
 
-    pub fn ntt(&self, a: &mut [u64]) {
-        ntt(
+impl NativeNTTBackend {
+    fn reduce_from_lazy(&self, a: &mut [u64]) {
+        a.iter_mut().for_each(|a0| {
+            let q = self.q;
+            if *a0 >= q {
+                *a0 = *a0 - q;
+            }
+        });
+    }
+}
+
+impl Ntt for NativeNTTBackend {
+    fn forward(&self, a: &mut [Self::Scalar]) {
+        ntt_lazy(
+            a,
+            &self.psi_powers_bo,
+            &self.psi_powers_bo_shoup,
+            self.q,
+            self.q_twice,
+        );
+        self.reduce_from_lazy(a);
+    }
+
+    fn backward(&self, a: &mut [Self::Scalar]) {
+        ntt_inv_lazy(
+            a,
+            &self.psi_inv_powers_bo,
+            &self.psi_inv_powers_bo_shoup,
+            self.n_inv,
+            self.q,
+            self.q_twice,
+        );
+        self.reduce_from_lazy(a);
+    }
+
+    fn forward_lazy(&self, a: &mut [Self::Scalar]) {
+        ntt_lazy(
             a,
             &self.psi_powers_bo,
             &self.psi_powers_bo_shoup,
@@ -222,8 +290,8 @@ impl NativeNTTBackend {
         );
     }
 
-    pub fn ntt_inv(&self, a: &mut [u64]) {
-        ntt_inv(
+    fn backward_lazy(&self, a: &mut [Self::Scalar]) {
+        ntt_inv_lazy(
             a,
             &self.psi_inv_powers_bo,
             &self.psi_inv_powers_bo_shoup,
@@ -237,35 +305,75 @@ impl NativeNTTBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core_crypto::num::UnsignedInteger;
-    use rand::{distributions::Uniform, Rng};
+    use crate::{
+        core_crypto::{modulus::ModulusVecBackend, prime::generate_prime},
+        utils::{negacyclic_mul, test_utils::random_vec_in_fq},
+    };
 
     const Q_60_BITS: u64 = 1152921504606748673;
-    const N: u64 = 1 << 4;
+    const N: usize = 1 << 4;
 
     const K: usize = 128;
 
-    fn random_vec_in_fq<T: UnsignedInteger + rand::distributions::uniform::SampleUniform>(
-        size: usize,
-        q: T,
-    ) -> Vec<T> {
-        let rng = thread_rng();
-        rng.sample_iter(Uniform::new(T::zero(), q))
-            .take(size)
-            .collect_vec()
+    #[test]
+    fn native_ntt_backend_works() {
+        // TODO(Jay): Improve tests. Add tests for different primes and ring size.
+        let ntt_backend = NativeNTTBackend::init(Q_60_BITS, N);
+        for _ in 0..K {
+            let mut a = random_vec_in_fq(N, Q_60_BITS);
+            let a_clone = a.clone();
+
+            ntt_backend.forward(&mut a);
+            assert_ne!(a, a_clone);
+            ntt_backend.backward(&mut a);
+            assert_eq!(a, a_clone);
+
+            ntt_backend.forward_lazy(&mut a);
+            assert_ne!(a, a_clone);
+            ntt_backend.backward(&mut a);
+            assert_eq!(a, a_clone);
+
+            ntt_backend.forward(&mut a);
+            ntt_backend.backward_lazy(&mut a);
+            // reduce
+            a.iter_mut().for_each(|a0| {
+                if *a0 > Q_60_BITS {
+                    *a0 -= *a0 - Q_60_BITS;
+                }
+            });
+            assert_eq!(a, a_clone);
+        }
     }
 
     #[test]
-    fn native_ntt_backend_works() {
-        let ntt_backend = NativeNTTBackend::new(Q_60_BITS, N);
-        for _ in 0..K {
-            let mut a = random_vec_in_fq(N as usize, Q_60_BITS);
-            let a_clone = a.clone();
+    fn native_ntt_negacylic_mul() {
+        let primes = [40, 50, 60]
+            .iter()
+            .map(|bits| generate_prime(*bits, (2 * N) as u64, 1u64 << bits).unwrap())
+            .collect_vec();
 
-            ntt_backend.ntt(&mut a);
-            assert_ne!(a, a_clone);
-            ntt_backend.ntt_inv(&mut a);
-            assert_eq!(a, a_clone);
+        for p in primes.into_iter() {
+            let ntt_backend = NativeNTTBackend::init(p, N);
+            let modulus_backend = NativeModulusBackend::initialise(p);
+            for _ in 0..K {
+                let a = random_vec_in_fq(N, p);
+                let b = random_vec_in_fq(N, p);
+
+                let mut a_clone = a.clone();
+                let mut b_clone = b.clone();
+                ntt_backend.forward_lazy(&mut a_clone);
+                ntt_backend.forward_lazy(&mut b_clone);
+                modulus_backend.mul_lazy_mod_vec(&mut a_clone, &b_clone);
+                ntt_backend.backward(&mut a_clone);
+
+                let mul = |a: &u64, b: &u64| {
+                    let tmp = *a as u128 * *b as u128;
+                    (tmp % p as u128) as u64
+                };
+                let expected_out = negacyclic_mul(&a, &b, mul, p);
+
+                assert_eq!(a_clone, expected_out);
+            }
         }
     }
 }

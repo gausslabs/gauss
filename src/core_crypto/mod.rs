@@ -1,5 +1,7 @@
-pub(crate) mod guassian_sampler;
-pub(crate) mod modulus;
-pub(crate) mod ntt;
-pub(crate) mod num;
-pub(crate) mod prime;
+pub mod matrix;
+pub mod modulus;
+pub mod ntt;
+pub mod num;
+pub mod prime;
+pub mod random;
+pub mod ring;
