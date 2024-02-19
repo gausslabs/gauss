@@ -1,9 +1,11 @@
+use itertools::{izip, Itertools};
 use num_bigint::{BigInt, BigUint, ToBigUint};
+use num_complex::Complex;
 use num_traits::{FromPrimitive, One, ToBytes, ToPrimitive, Zero};
 
 use crate::core_crypto::{
     modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend},
-    num::UnsignedInteger,
+    num::{ComplexNumber, Float, UnsignedInteger},
 };
 use std::{
     mem,
@@ -211,6 +213,33 @@ pub fn negacyclic_mul<T: UnsignedInteger, F: Fn(&T, &T) -> T>(
     }
 
     return r;
+}
+
+/// Maps elements of a to their bit reversed indices. Length of a must be power
+/// of 2
+pub fn bit_reverse_map<T: Clone>(a: &mut [T]) {
+    debug_assert!(
+        a.len().is_power_of_two(),
+        "Expected length of input to be some power of 2: but is {}",
+        a.len()
+    );
+
+    let l = a.len().leading_zeros() + 1;
+    let a_clone = a.to_vec();
+    for (index, el) in izip!(a_clone.iter()).enumerate() {
+        let r_index = index.reverse_bits() >> l;
+        a[r_index] = el.clone();
+    }
+}
+
+/// Calculates M^th root of unity and returns the subgroup \psi^{0}, \psi^{1},
+/// ..., \psi^{M}
+pub fn psi_powers<F: Float, C: ComplexNumber<F>>(m: u32) -> Vec<C> {
+    let m_root_unity = C::nth_root(m);
+    (0..m + 1)
+        .into_iter()
+        .map(|i| m_root_unity.powu(i as u32))
+        .collect_vec()
 }
 
 #[cfg(test)]
