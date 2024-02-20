@@ -1,12 +1,9 @@
-use std::{borrow::Borrow, cell::RefCell};
+use std::cell::RefCell;
 
-use itertools::{izip, Itertools};
-use num_traits::Zero;
-use rand::{
-    distributions::{uniform::SampleUniform, Uniform},
-    thread_rng, CryptoRng, Rng, RngCore, SeedableRng,
-};
+use itertools::izip;
+use rand::{distributions::Uniform, thread_rng, CryptoRng, Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use rand_distr::{Distribution, Normal};
 
 use super::matrix::{Matrix, MatrixMut, RowMut};
 
@@ -15,6 +12,8 @@ where
     M: ?Sized,
 {
     type Parameters: ?Sized;
+    const MEAN: f64 = 0.0;
+    const STD_DEV: f64 = 3.2;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut M);
 }
 
@@ -157,25 +156,33 @@ where
             parameters.len()
         );
 
-        // TODO (Jay)
-        // izip!(container.iter_rows_mut(), parameters.iter()).for_each(|(r,
-        // qi)| {     izip!(
-        //         r.as_mut().iter_mut(),
-        //         (&mut self.rng).sample_iter(Uniform::new(0, *qi))
-        //     )
-        //     .for_each(|(r_el, random_el)| *r_el = random_el);
-        // });
+        let normal = Normal::new(
+            <Self as RandomGaussianDist<M>>::MEAN,
+            <Self as RandomGaussianDist<M>>::STD_DEV,
+        )
+        .unwrap();
+
+        izip!(container.iter_rows_mut(), parameters.iter()).for_each(|(r, qi)| {
+            izip!(r.as_mut().iter_mut(), normal.sample_iter(&mut self.rng))
+                .for_each(|(r_el, random_el)| *r_el = (random_el as f64).round() as u64);
+        });
     }
 }
 
 impl RandomGaussianDist<[u64]> for DefaultU64SeededRandomGenerator {
     type Parameters = u64;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u64]) {
-        // izip!(
-        //     container.as_mut().iter_mut(),
-        //     (&mut self.rng).sample_iter(Uniform::new(0, *parameters))
-        // )
-        // .for_each(|(r_el, random_el)| *r_el = random_el);
+        let normal = Normal::new(
+            <Self as RandomGaussianDist<[u64]>>::MEAN,
+            <Self as RandomGaussianDist<[u64]>>::STD_DEV,
+        )
+        .unwrap();
+
+        izip!(
+            container.as_mut().iter_mut(),
+            normal.sample_iter(&mut self.rng)
+        )
+        .for_each(|(r_el, random_el)| *r_el = (random_el as f64).round() as u64);
     }
 }
 
