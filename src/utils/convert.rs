@@ -1,11 +1,9 @@
-use std::{fmt::Debug, ops::Rem};
-
-use aligned_vec::{AVec, ConstAlign, CACHELINE_ALIGN};
-use itertools::{izip, Itertools};
-use num_bigint::{BigUint, ToBigUint};
+use aligned_vec::{AVec, CACHELINE_ALIGN};
+use itertools::Itertools;
+use num_bigint::{BigInt, BigUint, ToBigInt};
 use num_traits::{ToPrimitive, Zero};
 
-use crate::core_crypto::{matrix::Matrix, num::UnsignedInteger};
+use crate::core_crypto::matrix::Matrix;
 
 use super::{mod_inverse, moduli_chain_to_biguint};
 
@@ -127,6 +125,49 @@ where
         }
 
         out_biguint_coeffs
+    }
+}
+
+impl<M> TryConvertFrom<M> for Vec<BigInt>
+where
+    M: Matrix<MatElement = u64>,
+{
+    type Parameters = [u64];
+
+    fn try_convert_from(value: &M, parameters: &Self::Parameters) -> Self {
+        let big_q = moduli_chain_to_biguint(parameters);
+
+        // q/q_i
+        let mut q_over_qi_vec = vec![];
+        // [[q/q_i]^{-1}]_q_i
+        let mut q_over_qi_inv_modqi_vec = vec![];
+        parameters.iter().for_each(|qi| {
+            let q_over_qi = &big_q / qi;
+            let q_over_qi_inv_modqi =
+                BigUint::from(mod_inverse((&q_over_qi % qi).to_u64().unwrap(), *qi));
+            q_over_qi_vec.push(q_over_qi);
+            q_over_qi_inv_modqi_vec.push(q_over_qi_inv_modqi);
+        });
+
+        let (_, ring_size) = value.dimension();
+
+        let mut out_bigint_coeffs = vec![];
+        for ri in 0..ring_size {
+            let mut x = BigUint::zero();
+            value.get_col_iter(ri).enumerate().for_each(|(i, xi)| {
+                x += xi * &q_over_qi_vec[i] * &q_over_qi_inv_modqi_vec[i];
+            });
+            x = x % &big_q;
+
+            // convert x from unsigned representation to signed representation
+            if x >= &big_q >> 1 {
+                out_bigint_coeffs.push((&big_q - x).to_bigint().unwrap() * -1);
+            } else {
+                out_bigint_coeffs.push(x.to_bigint().unwrap());
+            }
+        }
+
+        out_bigint_coeffs
     }
 }
 

@@ -84,8 +84,8 @@ pub fn generate_key<
     M: Matrix<MatElement = P::Scalar> + MatrixMut,
     Se: Clone,
     R: RandomUniformDist<Se, Parameters = u8>
-        + RandomUniformDist<[P::Scalar], Parameters = P::Scalar>
-        + RandomGaussianDist<[P::Scalar], Parameters = P::Scalar>
+        + RandomUniformDist<M, Parameters = [P::Scalar]>
+        + RandomGaussianDist<M, Parameters = [P::Scalar]>
         + InitWithSeed<Seed = Se>,
     S: SecretKey<Scalar = i32>,
 >(
@@ -119,6 +119,12 @@ pub fn generate_key<
     let q_moduli_chain = params.q_moduli_chain_at_level(level);
     let specialp_moduli_chain = params.specialp_moduli_chain_at_level();
 
+    // TODO(Jay): q and spepcialp as single vector is only required to sample
+    // pseudorandom part & error of ksks in QP_s. We can remove once we have a way
+    // to pass a submatrix as mutable matrix
+    let mut q_and_specuialp_moduli_chain = q_moduli_chain.to_vec();
+    q_and_specuialp_moduli_chain.extend(specialp_moduli_chain.iter());
+
     let ring_size = params.ring_size();
 
     // let seed = rng.
@@ -151,6 +157,17 @@ pub fn generate_key<
         debug_assert!(c0_k.dimension() == (q_size + specialp_size, ring_size));
         debug_assert!(c1_k.dimension() == (q_size + specialp_size, ring_size));
 
+        // Assume c_{1,k} is sampled in evaluation form
+        // We store ciphertexts tuple as (c0, c1) where c1 is -a (a being the pseudo
+        // random part of the ciphertext). Hence, we sample -a in evaluation
+        // representation
+        // TODO(Jay): If we had a way to pass submatrix as mutable matrix then we can
+        // separate sampling for moduli chain q and p_s
+        RandomUniformDist::random_fill(&mut prng, q_and_specuialp_moduli_chain.as_slice(), c1_k);
+
+        // Sample error polynomial in R_{QP_s} and store in c_{0,k}
+        RandomGaussianDist::random_fill(&mut prng, q_and_specuialp_moduli_chain.as_slice(), c0_k);
+
         // part Q
         izip!(
             gammak.iter(),
@@ -164,18 +181,13 @@ pub fn generate_key<
         )
         .for_each(
             |(gammak_modqi, qi, qi_modop, qi_nttop, p_modqi, c0k_modqi, c1k_modqi, s_modqi)| {
-                // Assume c_{1,k} is sampled in evaluation form
-                // We store ciphertexts tuple as (c0, c1) where c1 is -a (a being the pseudo
-                // random part of the ciphertext). Hence, we sample -c1.
-                RandomUniformDist::random_fill(&mut prng, qi, c1k_modqi.as_mut());
-
+                // Note that c_{1,k} \mod qi equals evaluation representation of -a \mod qi
                 // a * s \mod qi
                 let mut a_s = c1k_modqi.clone();
                 qi_modop.neg_mod_vec(a_s.as_mut());
                 qi_modop.mul_lazy_mod_vec(a_s.as_mut(), s_modqi.as_ref());
 
                 // e \mod qi
-                RandomGaussianDist::random_fill(rng, qi, c0k_modqi.as_mut());
                 qi_nttop.forward_lazy(c0k_modqi.as_mut());
 
                 // e + a * s \mod qi
@@ -200,16 +212,12 @@ pub fn generate_key<
             s_partspecialp.iter_rows()
         )
         .for_each(|(pj, pj_modop, pj_nttop, c0k_modpj, c1k_modpj, s_modpj)| {
-            // Assume c_{1, k} is sampled in evaluation form
-            RandomUniformDist::random_fill(&mut prng, pj, c1k_modpj.as_mut());
-
             // a * s \mod pj
             let mut a_s = c1k_modpj.clone();
             pj_modop.neg_mod_vec(a_s.as_mut());
             pj_modop.mul_lazy_mod_vec(a_s.as_mut(), s_modpj.as_ref());
 
             // e \mod pj
-            RandomGaussianDist::random_fill(rng, pj, c0k_modpj.as_mut());
             pj_nttop.forward_lazy(c0k_modpj.as_mut());
 
             // e + a * s \mod pj

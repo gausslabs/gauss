@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use itertools::izip;
+use itertools::{izip, Itertools};
 use rand::{distributions::Uniform, thread_rng, CryptoRng, Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Normal};
@@ -12,8 +12,6 @@ where
     M: ?Sized,
 {
     type Parameters: ?Sized;
-    const MEAN: f64 = 0.0;
-    const STD_DEV: f64 = 3.2;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut M);
 }
 
@@ -156,15 +154,21 @@ where
             parameters.len()
         );
 
-        let normal = Normal::new(
-            <Self as RandomGaussianDist<M>>::MEAN,
-            <Self as RandomGaussianDist<M>>::STD_DEV,
-        )
-        .unwrap();
+        let normal = Normal::new(0.0, 3.2f64).unwrap();
+        let samples = normal
+            .sample_iter(&mut self.rng)
+            .take(container.dimension().1)
+            .collect_vec();
 
         izip!(container.iter_rows_mut(), parameters.iter()).for_each(|(r, qi)| {
-            izip!(r.as_mut().iter_mut(), normal.sample_iter(&mut self.rng))
-                .for_each(|(r_el, random_el)| *r_el = (random_el as f64).round() as u64);
+            izip!(r.as_mut().iter_mut(), samples.iter()).for_each(|(r_el, random_el)| {
+                let random_el = random_el.round();
+                if random_el < 0.0 {
+                    *r_el = *qi - (random_el.abs() as u64);
+                } else {
+                    *r_el = random_el as u64;
+                }
+            });
         });
     }
 }
@@ -172,11 +176,7 @@ where
 impl RandomGaussianDist<[u64]> for DefaultU64SeededRandomGenerator {
     type Parameters = u64;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u64]) {
-        let normal = Normal::new(
-            <Self as RandomGaussianDist<[u64]>>::MEAN,
-            <Self as RandomGaussianDist<[u64]>>::STD_DEV,
-        )
-        .unwrap();
+        let normal = Normal::new(0.0, 3.2f64).unwrap();
 
         izip!(
             container.as_mut().iter_mut(),
