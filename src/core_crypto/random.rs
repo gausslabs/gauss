@@ -1,12 +1,9 @@
-use std::{borrow::Borrow, cell::RefCell};
+use std::cell::RefCell;
 
 use itertools::{izip, Itertools};
-use num_traits::Zero;
-use rand::{
-    distributions::{uniform::SampleUniform, Uniform},
-    thread_rng, CryptoRng, Rng, RngCore, SeedableRng,
-};
+use rand::{distributions::Uniform, thread_rng, CryptoRng, Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use rand_distr::{Distribution, Normal};
 
 use super::matrix::{Matrix, MatrixMut, RowMut};
 
@@ -157,25 +154,35 @@ where
             parameters.len()
         );
 
-        // TODO (Jay)
-        // izip!(container.iter_rows_mut(), parameters.iter()).for_each(|(r,
-        // qi)| {     izip!(
-        //         r.as_mut().iter_mut(),
-        //         (&mut self.rng).sample_iter(Uniform::new(0, *qi))
-        //     )
-        //     .for_each(|(r_el, random_el)| *r_el = random_el);
-        // });
+        let normal = Normal::new(0.0, 3.2f64).unwrap();
+        let samples = normal
+            .sample_iter(&mut self.rng)
+            .take(container.dimension().1)
+            .collect_vec();
+
+        izip!(container.iter_rows_mut(), parameters.iter()).for_each(|(r, qi)| {
+            izip!(r.as_mut().iter_mut(), samples.iter()).for_each(|(r_el, random_el)| {
+                let random_el = random_el.round();
+                if random_el < 0.0 {
+                    *r_el = *qi - (random_el.abs() as u64);
+                } else {
+                    *r_el = random_el as u64;
+                }
+            });
+        });
     }
 }
 
 impl RandomGaussianDist<[u64]> for DefaultU64SeededRandomGenerator {
     type Parameters = u64;
     fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [u64]) {
-        // izip!(
-        //     container.as_mut().iter_mut(),
-        //     (&mut self.rng).sample_iter(Uniform::new(0, *parameters))
-        // )
-        // .for_each(|(r_el, random_el)| *r_el = random_el);
+        let normal = Normal::new(0.0, 3.2f64).unwrap();
+
+        izip!(
+            container.as_mut().iter_mut(),
+            normal.sample_iter(&mut self.rng)
+        )
+        .for_each(|(r_el, random_el)| *r_el = (random_el as f64).round() as u64);
     }
 }
 
