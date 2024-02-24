@@ -371,6 +371,7 @@ impl HybridKskRuntimeParameters for HybridKskParametersScalarU64 {
 #[cfg(test)]
 mod tests {
     use itertools::izip;
+    use num_bigint::BigInt;
     use rand::SeedableRng;
     use rand_chacha::{rand_core::le, ChaCha8Rng};
 
@@ -382,6 +383,7 @@ mod tests {
             random::{DefaultU64SeededRandomGenerator, InitWithSeed, RandomUniformDist},
             ring::{
                 add_lazy_mut, backward, backward_lazy, foward, foward_lazy, mul_lazy_mut, neg_mut,
+                sub_mut,
             },
         },
         keys::SecretKey,
@@ -491,7 +493,7 @@ mod tests {
                         .collect_vec();
                     // Note(Jay): Due to the way NativeNTTBackend handles generating psi, two
                     // separately intialised instances of Ntt with same modulus and ring are not
-                    // compatible. Given ksk polynomials are in evaluation, hence we `Clone` the Ntt
+                    // compatible. Given ksk polynomials are in evaluation, we `Clone` the Ntt
                     // instances which were used in hybrid key gen phase and avoid creating new
                     // instances, because doing so will be incorrect.
                     let qp_nttops = q_nttops_at_level
@@ -523,7 +525,30 @@ mod tests {
                             modqi.scalar_mul_mod_vec(r.as_mut(), *g);
                         });
 
-                        assert_eq!(c0[..q_moduli_chain_at_level.len()], gamma_p1);
+                        let mut c0_partq = c0[..q_moduli_chain_at_level.len()].to_vec();
+                        sub_mut(&mut c0_partq, &gamma_p1, q_modops_at_level);
+                        Vec::<BigInt>::try_convert_from(&c0_partq, q_moduli_chain_at_level)
+                            .iter()
+                            .for_each(|v| {
+                                // Difference bits depend on error in key switching
+                                // key. We yet don't have a way to tighly bound it, hence no way to
+                                // say for sure what the maximum difference will be. For now, we
+                                // satisfy ourselves with 5 bits since \sigma is usually 3.2 and
+                                // probability of any error sample
+                                // outside range -6 \sigma to 6 \sigma is very very less.
+                                assert!(v.bits() < 5);
+                            });
+
+                        // part specialp of c0 is 0 since \gamma \mod pj = 0
+                        let c0_partspecialp = c0[q_moduli_chain_at_level.len()..].to_vec();
+                        Vec::<BigInt>::try_convert_from(
+                            &c0_partspecialp,
+                            specialp_moduli_chain_at_level,
+                        )
+                        .iter()
+                        .for_each(|v| {
+                            assert!(v.bits() < 5);
+                        });
                     }
                 }
 
