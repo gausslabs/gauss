@@ -10,7 +10,10 @@ use crate::{
         matrix::{Matrix, MatrixMut, RowMut},
         num::{BFloat, BInt, BUint, CastToZp, ComplexNumber, UnsignedInteger},
         random::{InitWithSeed, RandomGaussianDist, RandomUniformDist},
-        ring::{add_lazy_mut, foward, foward_lazy, mul_lazy_mut, neg_mut, reduce_from_lazy_mut},
+        ring::{
+            add_lazy_mut, foward, foward_lazy, mul_lazy_mut, neg_lazy_mut, neg_mut,
+            reduce_from_lazy_mut,
+        },
     },
     keys::SecretKey,
     parameters::CkksEncDecParameters,
@@ -224,7 +227,11 @@ pub fn simd_decode<
     special_fft(m_out, &psi_powers, &rot_group);
 }
 
-fn secret_key_encryption<
+/// Encrypt message polynomial m_eval_lazy using secret key.
+///
+/// m_eval_lazy must be in Evaluation representation and can have lazy
+/// coefficients.
+pub fn secret_key_encryption<
     Scalar: UnsignedInteger,
     Seed,
     C: RlweCiphertext<Scalar = Scalar> + SeededCiphertext<Seed = Seed>,
@@ -236,7 +243,7 @@ fn secret_key_encryption<
         + InitWithSeed<Seed = Seed>,
 >(
     c_out: &mut C,
-    m: &C::Poly,
+    m_eval_lazy: &C::Poly,
     secret: &S,
     params: &P,
     rng: &mut R,
@@ -267,8 +274,8 @@ fn secret_key_encryption<
     let q_modops = params.q_modops_at_level(level);
     let q_nttops = params.q_nttops_at_level(level);
 
-    // Sample seeded -a in Coefficient form
     {
+        // Sample seeded -a in Coefficient form
         RandomUniformDist::<Seed>::random_fill(rng, &0u8, c_out.seed_mut());
         let mut prng = R::init_with_seed(c_out.seed());
         RandomUniformDist::<C::Poly>::random_fill(
@@ -276,43 +283,42 @@ fn secret_key_encryption<
             &q_moduli_chain,
             &mut c_out.c_partq_mut()[1],
         );
-        foward(&mut c_out.c_partq_mut()[1], &q_nttops);
+        foward_lazy(&mut c_out.c_partq_mut()[1], &q_nttops);
     }
 
     // a * s
     let mut a = c_out.c_partq_mut()[1].clone();
-    neg_mut(&mut a, q_modops);
+    neg_lazy_mut(&mut a, q_modops);
     let mut sa = C::Poly::try_convert_from(secret.values(), q_moduli_chain);
     foward_lazy(&mut sa, q_nttops);
     mul_lazy_mut(&mut sa, &a, q_modops);
 
     // sample e
-    RandomGaussianDist::random_fill(rng, &q_moduli_chain, &mut c_out.c_partq_mut()[0]);
-    foward_lazy(&mut c_out.c_partq_mut()[0], q_nttops);
+    // RandomGaussianDist::random_fill(rng, &q_moduli_chain, &mut
+    // c_out.c_partq_mut()[0]); foward_lazy(&mut c_out.c_partq_mut()[0],
+    // q_nttops);
 
     // a*s + e + m
     add_lazy_mut(&mut c_out.c_partq_mut()[0], &sa, q_modops);
-    add_lazy_mut(&mut c_out.c_partq_mut()[0], m, q_modops);
-
-    reduce_from_lazy_mut(&mut c_out.c_partq_mut()[0], q_modops);
+    add_lazy_mut(&mut c_out.c_partq_mut()[0], m_eval_lazy, q_modops);
 
     *c_out.representation_mut() = Representation::Evaluation;
     *c_out.level_mut() = level;
+    *c_out.is_lazy_mut() = true;
 }
 
-fn secret_key_decryption<
+/// Decrypt RLWE ciphertext using secret
+///
+/// Output message polynomial `m_eval_lazty` is in Evaluation representation
+/// and has lazy coefficients
+pub fn secret_key_decryption<
     Scalar: UnsignedInteger,
-    Seed,
     C: RlweCiphertext<Scalar = Scalar>,
     S: SecretKey,
     P: CkksEncDecParameters<Scalar = Scalar>,
-    R: RandomGaussianDist<C::Poly, Parameters = [Scalar]>
-        + RandomUniformDist<C::Poly, Parameters = [Scalar]>
-        + RandomUniformDist<Seed, Parameters = u8>
-        + InitWithSeed<Seed = Seed>,
 >(
     c: &C,
-    m_eval: &mut C::Poly,
+    m_eval_lazy: &mut C::Poly,
     secret: &S,
     params: &P,
 ) where
@@ -330,29 +336,28 @@ fn secret_key_decryption<
         "Ciphertext must of atleast degree 2"
     );
     debug_assert!(
-        m_eval.dimension() == c.c_partq()[0].dimension(),
+        m_eval_lazy.dimension() == c.c_partq()[0].dimension(),
         "m_eval has incorrect dimensions. Expected {:?} but has {:?}",
         c.c_partq()[0].dimension(),
-        m_eval.dimension(),
+        m_eval_lazy.dimension(),
     );
 
     let q_modops = params.q_modops_at_level(level);
     let q_nttops = params.q_nttops_at_level(level);
 
-    *m_eval = c.c_partq()[0].clone();
+    *m_eval_lazy = c.c_partq()[0].clone();
 
     let mut s = C::Poly::try_convert_from(secret.values(), q_moduli_chain);
-    let mut s_clone = C::Poly::try_convert_from(secret.values(), q_moduli_chain);
+    foward_lazy(&mut s, q_nttops);
+    let s_clone = s.clone();
 
     for i in 1..c.c_partq().len() {
         let mut p = c.c_partq()[i].clone();
         mul_lazy_mut(&mut p, &s, q_modops);
-        add_lazy_mut(m_eval, &p, q_modops);
+        add_lazy_mut(m_eval_lazy, &p, q_modops);
 
         mul_lazy_mut(&mut s, &s_clone, q_modops);
     }
-
-    reduce_from_lazy_mut(m_eval, q_modops);
 }
 
 // specialFFT

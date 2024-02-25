@@ -5,9 +5,12 @@ pub type BfvSecretKey = entities::BfvSecretKey;
 
 #[cfg(test)]
 mod tests {
-    use crate::keys::{Decryptor, Encryptor, SecretKey};
+    use crate::{
+        keys::{Decryptor, Encryptor, SecretKey},
+        schemes::WithGlobal,
+    };
 
-    use self::entities::{build_parameters, BfvClientParametersForScalarU64, WithGlobal};
+    use self::entities::{build_parameters, BfvClientParametersForScalarU64};
 
     use super::*;
 
@@ -44,7 +47,7 @@ mod tests {
 
         let m = vec![1];
         let ct: BfvCiphertext = secret.encrypt(&m);
-        let m_back = secret.decrypt(ct);
+        let m_back = secret.decrypt(&ct);
         assert_eq!(
             m,
             m_back[..m.len()],

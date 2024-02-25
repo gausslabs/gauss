@@ -163,11 +163,11 @@ where
         izip!(container.iter_rows_mut(), parameters.iter()).for_each(|(r, qi)| {
             izip!(r.as_mut().iter_mut(), samples.iter()).for_each(|(r_el, random_el)| {
                 let random_el = random_el.round();
-                if random_el < 0.0 {
-                    *r_el = *qi - (random_el.abs() as u64);
-                } else {
-                    *r_el = random_el as u64;
-                }
+                // if random_el < 0.0 {
+                //     *r_el = *qi - (random_el.abs() as u64);
+                // } else {
+                //     *r_el = random_el as u64;
+                // }
             });
         });
     }

@@ -7,7 +7,7 @@ use crate::{
         random::RandomUniformDist,
     },
     keys::SecretKey,
-    schemes::bfv::ops::generate_ternery_secret_with_hamming_weight,
+    schemes::ops::generate_ternery_secret_with_hamming_weight,
 };
 use itertools::Itertools;
 use ndarray::{iter::Iter, Array2, ArrayBase, Axis, Dim, IndexLonger, ViewRepr};

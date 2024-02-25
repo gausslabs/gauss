@@ -1,9 +1,11 @@
+use std::fmt::Debug;
+
 use aligned_vec::{avec, AVec};
 use itertools::Itertools;
 
 use crate::core_crypto::num::UnsignedInteger;
 
-pub trait Matrix: AsRef<[Self::R]> {
+pub trait Matrix: AsRef<[Self::R]> + Debug {
     type MatElement;
     type R: Row<Element = Self::MatElement>;
 

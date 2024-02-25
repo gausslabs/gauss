@@ -14,9 +14,12 @@ use crate::{
     parameters::{
         BfvDecryptionParameters, BfvEncodingDecodingParameters, BfvEncryptionParameters, Parameters,
     },
-    schemes::bfv::ops::{
-        generate_ternery_secret_with_hamming_weight, secret_key_decryption, secret_key_encryption,
-        simd_decode_message, simd_encode_message,
+    schemes::{
+        bfv::ops::{
+            secret_key_decryption, secret_key_encryption, simd_decode_message, simd_encode_message,
+        },
+        ops::generate_ternery_secret_with_hamming_weight,
+        WithGlobal,
     },
     utils::{convert::TryConvertFrom, mod_inverse, mod_inverse_big_unit},
 };
@@ -28,12 +31,6 @@ use std::sync::OnceLock;
 pub static NATIVE_BFV_CLIENT_PARAMETERS_U64: OnceLock<
     BfvClientParametersForScalarU64<NativeModulusBackend, NativeNTTBackend>,
 > = OnceLock::new();
-
-pub trait WithGlobal {
-    fn with_global<F, R>(func: F) -> R
-    where
-        F: Fn(&Self) -> R;
-}
 
 pub struct BfvSecretKey {
     values: Vec<i32>,
@@ -85,9 +82,9 @@ where
         + Clone,
     <P as Matrix>::R: RowMut,
 {
-    fn decrypt(&self, c: BfvCiphertextScalarU64GenericStorage<P>) -> Vec<u64> {
+    fn decrypt(&self, c: &BfvCiphertextScalarU64GenericStorage<P>) -> Vec<u64> {
         BfvClientParametersForScalarU64::with_global(|parameters| {
-            let message = secret_key_decryption(&c, self, parameters).drop();
+            let message = secret_key_decryption(c, self, parameters).drop();
             simd_decode_message(&message, parameters)
         })
     }
@@ -97,6 +94,7 @@ pub(super) struct BfvCiphertextScalarU64GenericStorage<P> {
     c_partq: Vec<P>,
     level: usize,
     representation: Representation,
+    is_lazy: bool,
 }
 
 impl<P, R> Ciphertext for BfvCiphertextScalarU64GenericStorage<P>
@@ -117,6 +115,7 @@ where
     }
 }
 
+// TODO(Jay): remove init ciphertext
 impl<P> InitLevelledCiphertext for BfvCiphertextScalarU64GenericStorage<P> {
     type C = Vec<P>;
 
@@ -125,6 +124,8 @@ impl<P> InitLevelledCiphertext for BfvCiphertextScalarU64GenericStorage<P> {
             c_partq: c,
             level,
             representation,
+            // TODO(Jay): is is_lazy false by default?
+            is_lazy: false,
         }
     }
 }
@@ -148,6 +149,13 @@ where
 
     fn level_mut(&mut self) -> &mut usize {
         &mut self.level
+    }
+
+    fn is_lazy(&self) -> bool {
+        self.is_lazy
+    }
+    fn is_lazy_mut(&mut self) -> &mut bool {
+        &mut self.is_lazy
     }
 }
 

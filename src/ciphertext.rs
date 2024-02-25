@@ -45,6 +45,8 @@ pub trait RlweCiphertext: Ciphertext {
     fn c_partq_mut(&mut self) -> &mut [Self::Poly];
     fn level(&self) -> usize;
     fn level_mut(&mut self) -> &mut usize;
+    fn is_lazy(&self) -> bool;
+    fn is_lazy_mut(&mut self) -> &mut bool;
 }
 
 pub trait ExtendedRlweCiphertext: RlweCiphertext {

@@ -7,10 +7,20 @@ pub trait SecretKey {
     fn values(&self) -> &[Self::Scalar];
 }
 
-pub trait Encryptor<M:?Sized, C> {
+pub trait Encryptor<M: ?Sized, C> {
     fn encrypt(&self, message: &M) -> C;
 }
 
 pub trait Decryptor<M, C> {
-    fn decrypt(&self, c: C) -> M;
+    fn decrypt(&self, c: &C) -> M;
+}
+
+/// Encodes self to plaintext P
+pub trait LevelEncoder<P> {
+    fn encode(&self, level: usize) -> P;
+}
+
+/// Decodes self to message M
+pub trait LevelDecoder<M> {
+    fn decode(&self, level: usize) -> M;
 }
