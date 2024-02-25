@@ -5,7 +5,7 @@ use num_traits::{FromPrimitive, One, ToBytes, ToPrimitive, Zero};
 
 use crate::core_crypto::{
     modulus::{BarrettBackend, ModulusBackendConfig, NativeModulusBackend},
-    num::{ComplexNumber, Float, UnsignedInteger},
+    num::{BFloat, ComplexNumber, UnsignedInteger},
 };
 use std::{
     mem,
@@ -234,9 +234,9 @@ pub fn bit_reverse_map<T: Clone>(a: &mut [T]) {
 
 /// Calculates M^th root of unity and returns the subgroup \psi^{0}, \psi^{1},
 /// ..., \psi^{M}
-pub fn psi_powers<F: Float, C: ComplexNumber<F>>(m: u32) -> Vec<C> {
+pub fn psi_powers<F: BFloat, C: ComplexNumber<F>>(m: u32) -> Vec<C> {
     let m_root_unity = C::nth_root(m);
-    (0..m + 1)
+    (0..m)
         .into_iter()
         .map(|i| m_root_unity.powu(i as u32))
         .collect_vec()

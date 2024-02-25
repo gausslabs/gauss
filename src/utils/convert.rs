@@ -1,9 +1,11 @@
+use std::{iter::Map, ops::Neg, path::Iter};
+
 use aligned_vec::{AVec, CACHELINE_ALIGN};
-use itertools::Itertools;
+use itertools::{izip, Itertools};
 use num_bigint::{BigInt, BigUint, ToBigInt};
 use num_traits::{ToPrimitive, Zero};
 
-use crate::core_crypto::matrix::Matrix;
+use crate::core_crypto::matrix::{Matrix, MatrixMut, RowMut};
 
 use super::{mod_inverse, moduli_chain_to_biguint};
 
@@ -171,6 +173,49 @@ where
     }
 }
 
+impl<M> TryConvertFrom<M> for Vec<f64>
+where
+    M: Matrix<MatElement = u64>,
+{
+    type Parameters = [u64];
+
+    fn try_convert_from(value: &M, parameters: &Self::Parameters) -> Self {
+        let big_q = moduli_chain_to_biguint(parameters);
+
+        // q/q_i
+        let mut q_over_qi_vec = vec![];
+        // [[q/q_i]^{-1}]_q_i
+        let mut q_over_qi_inv_modqi_vec = vec![];
+        parameters.iter().for_each(|qi| {
+            let q_over_qi = &big_q / qi;
+            let q_over_qi_inv_modqi =
+                BigUint::from(mod_inverse((&q_over_qi % qi).to_u64().unwrap(), *qi));
+            q_over_qi_vec.push(q_over_qi);
+            q_over_qi_inv_modqi_vec.push(q_over_qi_inv_modqi);
+        });
+
+        let (_, ring_size) = value.dimension();
+
+        let mut out_coeffs = vec![];
+        for ri in 0..ring_size {
+            let mut x = BigUint::zero();
+            value.get_col_iter(ri).enumerate().for_each(|(i, xi)| {
+                x += xi * &q_over_qi_vec[i] * &q_over_qi_inv_modqi_vec[i];
+            });
+            x = x % &big_q;
+
+            // convert x from unsigned representation to signed representation
+            if x >= &big_q >> 1 {
+                out_coeffs.push(((&big_q - x).to_bigint().unwrap().neg()).to_f64().unwrap());
+            } else {
+                out_coeffs.push(x.to_bigint().unwrap().to_f64().unwrap());
+            }
+        }
+
+        out_coeffs
+    }
+}
+
 impl<M> TryConvertFromParts<M> for Vec<BigUint>
 where
     M: Matrix<MatElement = u64>,
@@ -237,6 +282,45 @@ where
         out_biguint_coeffs
     }
 }
+
+// TODO(Jay): I wanted to implement `try_convert_from` from [f64] to Matrix.
+// Couldn't figure out the right way to do so. After implementing this we can
+// `CastToZp<Uint> for F` trait bound (CastToZp trait itself) in `simd_encode`
+// and instead use TryConvertFrom<[f64]> for Matrix
+
+// pub trait TryConvertFromMut<T: ?Sized> {
+//     type Parameters: ?Sized;
+
+//     fn try_convert_from_mut(value: &T, parameters: &Self::Parameters, out:
+// &mut Self); }
+// impl<M> TryConvertFromMut<dyn Iterator<Item = f64>> for M
+// where
+//     M: MatrixMut,
+//     <M as Matrix>::R: RowMut,
+// {
+//     type Parameters = [u64];
+//     fn try_convert_from_mut(
+//         value: &dyn Iterator<Item = f64>,
+//         parameters: &Self::Parameters,
+//         out: &mut Self,
+//     ) {
+//         // TODO(Jay): I don't think calculating mbig_q here is critical but
+// not sure.         // Recheck
+//         let big_q = moduli_chain_to_biguint(&parameters);
+//         let dim = out.dimension();
+
+//         debug_assert!(
+//             dim.0 == parameters.len(),
+//             "Expected Matrix to have {} rows but has {}",
+//             parameters.len(),
+//             dim.0
+//         );
+
+//         let ring_size = dim.1;
+
+//         izip!((0..ring_size).into_iter(), *value).for_each(|(col_index, v)|
+// {});     }
+// }
 
 #[cfg(test)]
 mod tests {

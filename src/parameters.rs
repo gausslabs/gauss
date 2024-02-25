@@ -9,7 +9,7 @@ use crate::{
             MontgomeryBackend, MontgomeryScalar,
         },
         ntt::{Ntt, NttConfig},
-        num::UnsignedInteger,
+        num::{BFloat, ComplexNumber, UnsignedInteger},
     },
     utils::{mod_inverse, mod_inverse_big_unit},
 };
@@ -139,4 +139,18 @@ pub trait BfvEncodingDecodingParameters: Parameters {
     fn matrix_representation_index_map(&self) -> &[usize];
     fn t_ntt_op(&self) -> &Self::NttOp;
     fn modt_op(&self) -> &Self::ModOp;
+}
+
+// CKKS encoding decoding parameters
+pub trait CkksEncodingDecodingParameters: Parameters {
+    type F: BFloat;
+    type Complex: ComplexNumber<Self::F>;
+    type BU;
+
+    fn delta(&self) -> Self::F;
+    fn psi_powers(&self) -> &[Self::Complex];
+    fn rot_group(&self) -> &[usize];
+    fn ring_size(&self) -> usize;
+    fn bigq_at_level(&self, level: usize) -> &Self::BU;
+    fn q_moduli_chain_at_level(&self, level: usize) -> &[Self::Scalar];
 }
