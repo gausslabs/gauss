@@ -157,16 +157,39 @@ pub fn generate_key<
         debug_assert!(c0_k.dimension() == (q_size + specialp_size, ring_size));
         debug_assert!(c1_k.dimension() == (q_size + specialp_size, ring_size));
 
-        // Assume c_{1,k} is sampled in evaluation form
-        // We store ciphertexts tuple as (c0, c1) where c1 is -a (a being the pseudo
-        // random part of the ciphertext). Hence, we sample -a in evaluation
-        // representation
+        // c_{1,k} is sampled in coefficient form. Since evaluaton form is Ntt
+        // dependent, one cannot sample a seeded polynomial directly in Evaluation form.
+        // We store ciphertext tuple as (c0, c1) where c1 = -a (a being the pseudo
+        // random part of the ciphertext).
         // TODO(Jay): If we had a way to pass submatrix as mutable matrix then we can
         // separate sampling for moduli chain q and p_s
         RandomUniformDist::random_fill(&mut prng, q_and_specuialp_moduli_chain.as_slice(), c1_k);
 
         // Sample error polynomial in R_{QP_s} and store in c_{0,k}
         RandomGaussianDist::random_fill(&mut prng, q_and_specuialp_moduli_chain.as_slice(), c0_k);
+
+        {
+            // TODO(Jay): I really wish there was a way to pass submatrix as matrix because
+            // that will allow us to use forward_lazy directly.
+            izip!(
+                q_nttops.iter(),
+                c0_k.iter_rows_mut().take(q_size),
+                c1_k.iter_rows_mut().take(q_size)
+            )
+            .for_each(|(nttqi, c0_modqi, c1_modqi)| {
+                nttqi.forward_lazy(c0_modqi.as_mut());
+                nttqi.forward_lazy(c1_modqi.as_mut());
+            });
+            izip!(
+                specialp_nttops.iter(),
+                c0_k.iter_rows_mut().skip(q_size),
+                c1_k.iter_rows_mut().skip(q_size)
+            )
+            .for_each(|(nttqi, c0_modqi, c1_modqi)| {
+                nttqi.forward_lazy(c0_modqi.as_mut());
+                nttqi.forward_lazy(c1_modqi.as_mut());
+            });
+        }
 
         // part Q
         izip!(
@@ -176,7 +199,7 @@ pub fn generate_key<
             q_nttops.iter(),
             p_eval.iter_rows(),
             c0_k.iter_rows_mut().take(q_size),
-            c1_k.iter_rows_mut().take(q_size),
+            c1_k.iter_rows().take(q_size),
             s_partq.iter_rows()
         )
         .for_each(
@@ -184,11 +207,8 @@ pub fn generate_key<
                 // Note that c_{1,k} \mod qi equals evaluation representation of -a \mod qi
                 // a * s \mod qi
                 let mut a_s = c1k_modqi.clone();
-                qi_modop.neg_mod_vec(a_s.as_mut());
+                qi_modop.neg_lazy_mod_vec(a_s.as_mut());
                 qi_modop.mul_lazy_mod_vec(a_s.as_mut(), s_modqi.as_ref());
-
-                // e \mod qi
-                qi_nttop.forward_lazy(c0k_modqi.as_mut());
 
                 // e + a * s \mod qi
                 qi_modop.add_lazy_mod_vec(c0k_modqi.as_mut(), a_s.as_ref());
@@ -208,17 +228,14 @@ pub fn generate_key<
             specialp_modops.iter(),
             specialp_nttops.iter(),
             c0_k.iter_rows_mut().skip(q_size),
-            c1_k.iter_rows_mut().skip(q_size),
+            c1_k.iter_rows().skip(q_size),
             s_partspecialp.iter_rows()
         )
         .for_each(|(pj, pj_modop, pj_nttop, c0k_modpj, c1k_modpj, s_modpj)| {
             // a * s \mod pj
             let mut a_s = c1k_modpj.clone();
-            pj_modop.neg_mod_vec(a_s.as_mut());
+            pj_modop.neg_lazy_mod_vec(a_s.as_mut());
             pj_modop.mul_lazy_mod_vec(a_s.as_mut(), s_modpj.as_ref());
-
-            // e \mod pj
-            pj_nttop.forward_lazy(c0k_modpj.as_mut());
 
             // e + a * s \mod pj
             pj_modop.add_lazy_mod_vec(c0k_modpj.as_mut(), a_s.as_ref());

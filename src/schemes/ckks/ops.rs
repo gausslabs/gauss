@@ -5,11 +5,15 @@ use std::{
 };
 
 use crate::{
+    ciphertext::{Representation, RlweCiphertext, SeededCiphertext},
     core_crypto::{
         matrix::{Matrix, MatrixMut, RowMut},
         num::{BFloat, BInt, BUint, CastToZp, ComplexNumber, UnsignedInteger},
+        random::{InitWithSeed, RandomGaussianDist, RandomUniformDist},
+        ring::{add_lazy_mut, foward, foward_lazy, mul_lazy_mut, neg_mut, reduce_from_lazy_mut},
     },
-    parameters::CkksEncodingDecodingParameters,
+    keys::SecretKey,
+    parameters::CkksEncDecParameters,
     utils::{bit_reverse_map, convert::TryConvertFrom},
 };
 
@@ -112,7 +116,7 @@ pub fn simd_encode<
     F: BFloat + CastToZp<Uint>,
     C: ComplexNumber<F> + Clone + Copy,
     MMut: MatrixMut<MatElement = Scalar>,
-    P: CkksEncodingDecodingParameters<F = F, Scalar = Scalar, BU = Uint, Complex = C>,
+    P: CkksEncDecParameters<F = F, Scalar = Scalar, BU = Uint, Complex = C>,
 >(
     p: &mut MMut,
     m: &[C],
@@ -180,7 +184,7 @@ pub fn simd_decode<
     // TODO(Jay): Remove Copy bound
     C: ComplexNumber<F> + Copy,
     M: Matrix<MatElement = Scalar>,
-    P: CkksEncodingDecodingParameters<F = F, Scalar = Scalar, Complex = C>,
+    P: CkksEncDecParameters<F = F, Scalar = Scalar, Complex = C>,
 >(
     p: &M,
     params: &P,
@@ -220,6 +224,137 @@ pub fn simd_decode<
     special_fft(m_out, &psi_powers, &rot_group);
 }
 
+fn secret_key_encryption<
+    Scalar: UnsignedInteger,
+    Seed,
+    C: RlweCiphertext<Scalar = Scalar> + SeededCiphertext<Seed = Seed>,
+    S: SecretKey,
+    P: CkksEncDecParameters<Scalar = Scalar>,
+    R: RandomGaussianDist<C::Poly, Parameters = [Scalar]>
+        + RandomUniformDist<C::Poly, Parameters = [Scalar]>
+        + RandomUniformDist<Seed, Parameters = u8>
+        + InitWithSeed<Seed = Seed>,
+>(
+    c_out: &mut C,
+    m: &C::Poly,
+    secret: &S,
+    params: &P,
+    rng: &mut R,
+    level: usize,
+) where
+    C::Poly: TryConvertFrom<[S::Scalar], Parameters = [Scalar]> + Clone,
+{
+    let q_moduli_chain = params.q_moduli_chain_at_level(level);
+    let ring_size = params.ring_size();
+    debug_assert!(
+        c_out.c_partq().len() == 2,
+        "Expedted ciphertext to have 2 polynomials but has {}",
+        c_out.c_partq().len()
+    );
+    debug_assert!(
+        c_out.c_partq()[0].dimension() == (q_moduli_chain.len(), ring_size),
+        "c0 poly should have {:?} dimension but has {:?}",
+        (q_moduli_chain.len(), ring_size),
+        c_out.c_partq()[0].dimension()
+    );
+    debug_assert!(
+        c_out.c_partq()[1].dimension() == (q_moduli_chain.len(), ring_size),
+        "c1 poly should have {:?} dimension but has {:?}",
+        (q_moduli_chain.len(), ring_size),
+        c_out.c_partq()[1].dimension()
+    );
+
+    let q_modops = params.q_modops_at_level(level);
+    let q_nttops = params.q_nttops_at_level(level);
+
+    // Sample seeded -a in Coefficient form
+    {
+        RandomUniformDist::<Seed>::random_fill(rng, &0u8, c_out.seed_mut());
+        let mut prng = R::init_with_seed(c_out.seed());
+        RandomUniformDist::<C::Poly>::random_fill(
+            &mut prng,
+            &q_moduli_chain,
+            &mut c_out.c_partq_mut()[1],
+        );
+        foward(&mut c_out.c_partq_mut()[1], &q_nttops);
+    }
+
+    // a * s
+    let mut a = c_out.c_partq_mut()[1].clone();
+    neg_mut(&mut a, q_modops);
+    let mut sa = C::Poly::try_convert_from(secret.values(), q_moduli_chain);
+    foward_lazy(&mut sa, q_nttops);
+    mul_lazy_mut(&mut sa, &a, q_modops);
+
+    // sample e
+    RandomGaussianDist::random_fill(rng, &q_moduli_chain, &mut c_out.c_partq_mut()[0]);
+    foward_lazy(&mut c_out.c_partq_mut()[0], q_nttops);
+
+    // a*s + e + m
+    add_lazy_mut(&mut c_out.c_partq_mut()[0], &sa, q_modops);
+    add_lazy_mut(&mut c_out.c_partq_mut()[0], m, q_modops);
+
+    reduce_from_lazy_mut(&mut c_out.c_partq_mut()[0], q_modops);
+
+    *c_out.representation_mut() = Representation::Evaluation;
+    *c_out.level_mut() = level;
+}
+
+fn secret_key_decryption<
+    Scalar: UnsignedInteger,
+    Seed,
+    C: RlweCiphertext<Scalar = Scalar>,
+    S: SecretKey,
+    P: CkksEncDecParameters<Scalar = Scalar>,
+    R: RandomGaussianDist<C::Poly, Parameters = [Scalar]>
+        + RandomUniformDist<C::Poly, Parameters = [Scalar]>
+        + RandomUniformDist<Seed, Parameters = u8>
+        + InitWithSeed<Seed = Seed>,
+>(
+    c: &C,
+    m_eval: &mut C::Poly,
+    secret: &S,
+    params: &P,
+) where
+    C::Poly: Clone + TryConvertFrom<[S::Scalar], Parameters = [Scalar]>,
+{
+    let level = c.level();
+    let q_moduli_chain = params.q_moduli_chain_at_level(level);
+
+    debug_assert!(
+        c.representation() == Representation::Evaluation,
+        "Expected ciphertext to have Evaluation representation"
+    );
+    debug_assert!(
+        c.c_partq().len() >= 2,
+        "Ciphertext must of atleast degree 2"
+    );
+    debug_assert!(
+        m_eval.dimension() == c.c_partq()[0].dimension(),
+        "m_eval has incorrect dimensions. Expected {:?} but has {:?}",
+        c.c_partq()[0].dimension(),
+        m_eval.dimension(),
+    );
+
+    let q_modops = params.q_modops_at_level(level);
+    let q_nttops = params.q_nttops_at_level(level);
+
+    *m_eval = c.c_partq()[0].clone();
+
+    let mut s = C::Poly::try_convert_from(secret.values(), q_moduli_chain);
+    let mut s_clone = C::Poly::try_convert_from(secret.values(), q_moduli_chain);
+
+    for i in 1..c.c_partq().len() {
+        let mut p = c.c_partq()[i].clone();
+        mul_lazy_mut(&mut p, &s, q_modops);
+        add_lazy_mut(m_eval, &p, q_modops);
+
+        mul_lazy_mut(&mut s, &s_clone, q_modops);
+    }
+
+    reduce_from_lazy_mut(m_eval, q_modops);
+}
+
 // specialFFT
 // encoding
 // decoeding
@@ -229,7 +364,9 @@ pub fn simd_decode<
 #[cfg(test)]
 mod tests {
     use crate::{
-        core_crypto::{prime::generate_primes_vec, ring},
+        core_crypto::{
+            modulus::NativeModulusBackend, ntt::NativeNTTBackend, prime::generate_primes_vec, ring,
+        },
         parameters::Parameters,
         utils::{moduli_chain_to_biguint, psi_powers},
     };
@@ -321,10 +458,12 @@ mod tests {
         type Scalar = u64;
     }
 
-    impl CkksEncodingDecodingParameters for CkksParameters {
+    impl CkksEncDecParameters for CkksParameters {
         type BU = BigUint;
         type Complex = Complex<f64>;
         type F = f64;
+        type ModOp = NativeModulusBackend;
+        type NttOp = NativeNTTBackend;
 
         fn bigq_at_level(&self, level: usize) -> &Self::BU {
             &self.bigq
@@ -343,6 +482,13 @@ mod tests {
         }
         fn rot_group(&self) -> &[usize] {
             &self.rot_group
+        }
+
+        fn q_modops_at_level(&self, level: usize) -> &[Self::ModOp] {
+            todo!()
+        }
+        fn q_nttops_at_level(&self, level: usize) -> &[Self::NttOp] {
+            todo!()
         }
     }
 

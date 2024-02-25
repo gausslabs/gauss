@@ -3,7 +3,7 @@ use num_traits::Signed;
 use rand::{CryptoRng, RngCore};
 
 use crate::{
-    ciphertext::{Ciphertext, InitialiseLevelledCiphertext, Representation, RlweCiphertext},
+    ciphertext::{Ciphertext, InitLevelledCiphertext, Representation, RlweCiphertext},
     core_crypto::{
         matrix::{Matrix, MatrixMut, RowMut},
         modulus::ModulusVecBackend,
@@ -119,7 +119,7 @@ pub fn secret_key_encryption<
     Poly: MatrixMut<MatElement = Scalar>,
     S: SecretKey<Scalar = i32>,
     P: BfvEncryptionParameters<Scalar = Scalar>,
-    C: RlweCiphertext<Poly = Poly> + InitialiseLevelledCiphertext<C = Vec<Poly>>,
+    C: RlweCiphertext<Poly = Poly> + InitLevelledCiphertext<C = Vec<Poly>>,
     R: RandomUniformDist<Poly, Parameters = [Scalar]>
         + RandomGaussianDist<Poly, Parameters = [Scalar]>
         + CryptoRng,
@@ -184,7 +184,7 @@ where
     neg_mut(&mut neg_a, modq_ops);
 
     let c = vec![s, neg_a];
-    InitialiseLevelledCiphertext::new(c, level, Representation::Coefficient)
+    InitLevelledCiphertext::new(c, level, Representation::Coefficient)
 }
 
 pub fn secret_key_decryption<

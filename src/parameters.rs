@@ -142,10 +142,12 @@ pub trait BfvEncodingDecodingParameters: Parameters {
 }
 
 // CKKS encoding decoding parameters
-pub trait CkksEncodingDecodingParameters: Parameters {
+pub trait CkksEncDecParameters: Parameters {
     type F: BFloat;
     type Complex: ComplexNumber<Self::F>;
     type BU;
+    type ModOp: ModulusVecBackend<Self::Scalar>;
+    type NttOp: Ntt<Scalar = Self::Scalar>;
 
     fn delta(&self) -> Self::F;
     fn psi_powers(&self) -> &[Self::Complex];
@@ -153,4 +155,7 @@ pub trait CkksEncodingDecodingParameters: Parameters {
     fn ring_size(&self) -> usize;
     fn bigq_at_level(&self, level: usize) -> &Self::BU;
     fn q_moduli_chain_at_level(&self, level: usize) -> &[Self::Scalar];
+
+    fn q_modops_at_level(&self, level: usize) -> &[Self::ModOp];
+    fn q_nttops_at_level(&self, level: usize) -> &[Self::NttOp];
 }

@@ -1,5 +1,5 @@
 use crate::{
-    ciphertext::{Ciphertext, InitialiseLevelledCiphertext, Representation, RlweCiphertext},
+    ciphertext::{Ciphertext, InitLevelledCiphertext, Representation, RlweCiphertext},
     core_crypto::{
         matrix::{Drop2Dimension, Matrix, MatrixMut, Row, RowMut},
         modulus::{
@@ -111,9 +111,13 @@ where
     fn representation(&self) -> Representation {
         self.representation
     }
+
+    fn representation_mut(&mut self) -> &mut Representation {
+        &mut self.representation
+    }
 }
 
-impl<P> InitialiseLevelledCiphertext for BfvCiphertextScalarU64GenericStorage<P> {
+impl<P> InitLevelledCiphertext for BfvCiphertextScalarU64GenericStorage<P> {
     type C = Vec<P>;
 
     fn new(c: Self::C, level: usize, representation: Representation) -> Self {
@@ -140,6 +144,10 @@ where
 
     fn level(&self) -> usize {
         self.level
+    }
+
+    fn level_mut(&mut self) -> &mut usize {
+        &mut self.level
     }
 }
 
