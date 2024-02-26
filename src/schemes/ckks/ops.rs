@@ -8,6 +8,7 @@ use crate::{
     ciphertext::{Representation, RlweCiphertext, SeededCiphertext},
     core_crypto::{
         matrix::{Matrix, MatrixMut, RowMut},
+        modulus::ModulusVecBackend,
         num::{BFloat, BInt, BUint, CastToZp, ComplexNumber, UnsignedInteger},
         random::{InitWithSeed, RandomGaussianDist, RandomUniformDist},
         ring::{
@@ -16,11 +17,10 @@ use crate::{
         },
     },
     keys::SecretKey,
-    parameters::CkksEncDecParameters,
+    parameters::{CkksArithmeticParameters, CkksEncDecParameters},
     utils::{bit_reverse_map, convert::TryConvertFrom},
 };
 
-// specialIFFT
 pub fn special_inv_fft<F: BFloat, C: ComplexNumber<F> + Clone + Copy>(
     v: &mut [C],
     psi_powers: &[C],
@@ -294,9 +294,8 @@ pub fn secret_key_encryption<
     mul_lazy_mut(&mut sa, &a, q_modops);
 
     // sample e
-    // RandomGaussianDist::random_fill(rng, &q_moduli_chain, &mut
-    // c_out.c_partq_mut()[0]); foward_lazy(&mut c_out.c_partq_mut()[0],
-    // q_nttops);
+    RandomGaussianDist::random_fill(rng, &q_moduli_chain, &mut c_out.c_partq_mut()[0]);
+    foward_lazy(&mut c_out.c_partq_mut()[0], q_nttops);
 
     // a*s + e + m
     add_lazy_mut(&mut c_out.c_partq_mut()[0], &sa, q_modops);
@@ -360,11 +359,77 @@ pub fn secret_key_decryption<
     }
 }
 
-// specialFFT
-// encoding
-// decoeding
-// how do you implement random round ?
-// check encoding & decoding error
+/// Inplace add c1 to c0.
+///
+/// Both ciphertext must have same representation. After inplace addition, c0
+/// will have lazy coefficients if either of the inputs c0 or c1 have lazy
+/// coeffcients.
+pub fn ciphertext_add<
+    Scalar: UnsignedInteger,
+    C: RlweCiphertext<Scalar = Scalar>,
+    P: CkksArithmeticParameters<Scalar = Scalar>,
+>(
+    c0: &mut C,
+    c1: &mut C,
+    params: &P,
+) {
+    debug_assert!(
+        c0.representation() == c1.representation(),
+        "c0 and c1 are in different representations. c0 is in {:?} and c1 is in {:?}",
+        c0.representation(),
+        c1.representation(),
+    );
+
+    let is_lazy = c0.is_lazy() || c1.is_lazy();
+    let q_modops = params.q_modops_at_level(c0.level());
+    izip!(c0.c_partq_mut().iter_mut(), c1.c_partq().iter()).for_each(|(p0, p1)| {
+        izip!(p0.iter_rows_mut(), p1.iter_rows(), q_modops.iter()).for_each(|(r0, r1, modqi)| {
+            if is_lazy {
+                modqi.add_lazy_mod_vec(r0.as_mut(), r1.as_ref());
+            } else {
+                modqi.add_mod_vec(r0.as_mut(), r1.as_ref());
+            }
+        })
+    });
+
+    *c0.is_lazy_mut() = is_lazy;
+}
+
+/// Inplace sub c1 to c0.
+///
+/// Both ciphertext must have same representation. After inplace addition, c0
+/// will have lazy coefficients if either of the inputs c0 or c1 have lazy
+/// coeffcients.
+pub fn ciphertext_sub<
+    Scalar: UnsignedInteger,
+    C: RlweCiphertext<Scalar = Scalar>,
+    P: CkksArithmeticParameters<Scalar = Scalar>,
+>(
+    c0: &mut C,
+    c1: &mut C,
+    params: &P,
+) {
+    debug_assert!(
+        c0.representation() == c1.representation(),
+        "c0 and c1 are in different representations. c0 is in {:?} and c1 is in {:?}",
+        c0.representation(),
+        c1.representation(),
+    );
+
+    let is_lazy = c0.is_lazy() || c1.is_lazy();
+    let q_modops = params.q_modops_at_level(c0.level());
+    izip!(c0.c_partq_mut().iter_mut(), c1.c_partq().iter()).for_each(|(p0, p1)| {
+        izip!(p0.iter_rows_mut(), p1.iter_rows(), q_modops.iter()).for_each(|(r0, r1, modqi)| {
+            if is_lazy {
+                modqi.sub_lazy_mod_vec(r0.as_mut(), r1.as_ref());
+            } else {
+                modqi.sub_mod_vec(r0.as_mut(), r1.as_ref());
+            }
+        })
+    });
+
+    *c0.is_lazy_mut() = is_lazy;
+}
 
 #[cfg(test)]
 mod tests {
@@ -373,7 +438,7 @@ mod tests {
             modulus::NativeModulusBackend, ntt::NativeNTTBackend, prime::generate_primes_vec, ring,
         },
         parameters::Parameters,
-        utils::{moduli_chain_to_biguint, psi_powers},
+        utils::{moduli_chain_to_biguint, print_precision_stats, psi_powers},
     };
 
     use super::*;
@@ -419,111 +484,6 @@ mod tests {
         // negligible. I don't know yet how to quantify the difference, hence
         // can't hardcode a value. Therefore, we pretty print here
         // difference and check ourselves that the error is negligible
-        // TODO(Jay): Pretty print the difference
-        // dbg!(values_clone);
-        // dbg!(values);
-    }
-
-    struct CkksParameters {
-        delta: f64,
-        psi_powers: Vec<Complex<f64>>,
-        rot_group: Vec<usize>,
-        ring_size: usize,
-        q_moduli_chain: Vec<u64>,
-        bigq: BigUint,
-    }
-    impl CkksParameters {
-        fn new(ring_size: usize, q_moduli_chain: Vec<u64>, delta: f64) -> Self {
-            let m = ring_size << 1;
-            let n = ring_size;
-            let l = n >> 1;
-
-            let mut a = 1usize;
-            let mut rot_group = vec![];
-            for _ in 0..l {
-                rot_group.push(a);
-                a = (a * 5) % m;
-            }
-
-            let psi_powers = psi_powers(m as u32);
-            let bigq = moduli_chain_to_biguint(&q_moduli_chain);
-
-            CkksParameters {
-                delta,
-                psi_powers,
-                rot_group,
-                ring_size,
-                q_moduli_chain,
-                bigq,
-            }
-        }
-    }
-
-    impl Parameters for CkksParameters {
-        type Scalar = u64;
-    }
-
-    impl CkksEncDecParameters for CkksParameters {
-        type BU = BigUint;
-        type Complex = Complex<f64>;
-        type F = f64;
-        type ModOp = NativeModulusBackend;
-        type NttOp = NativeNTTBackend;
-
-        fn bigq_at_level(&self, level: usize) -> &Self::BU {
-            &self.bigq
-        }
-        fn delta(&self) -> Self::F {
-            self.delta
-        }
-        fn psi_powers(&self) -> &[Self::Complex] {
-            &self.psi_powers
-        }
-        fn q_moduli_chain_at_level(&self, level: usize) -> &[Self::Scalar] {
-            &self.q_moduli_chain
-        }
-        fn ring_size(&self) -> usize {
-            self.ring_size
-        }
-        fn rot_group(&self) -> &[usize] {
-            &self.rot_group
-        }
-
-        fn q_modops_at_level(&self, level: usize) -> &[Self::ModOp] {
-            todo!()
-        }
-        fn q_nttops_at_level(&self, level: usize) -> &[Self::NttOp] {
-            todo!()
-        }
-    }
-
-    #[test]
-    fn encoding_decoding_works() {
-        let ring_size = 1 << 4;
-        let q_moduli_chain = generate_primes_vec(&[50, 50, 50], ring_size, &[]);
-        let params = CkksParameters::new(ring_size, q_moduli_chain, 2.0_f64.powi(40i32));
-
-        // vec of length l with random complex values
-        let reals = Uniform::new(0.0, 100.0);
-        let imags = Uniform::new(0.0, 100.0);
-        let complex_distr = ComplexDistribution::new(reals, imags);
-        let values = thread_rng()
-            .sample_iter(complex_distr)
-            .take(params.ring_size() >> 1)
-            .collect_vec();
-
-        let level = 0;
-        let mut p = <Vec<Vec<u64>> as Matrix>::zeros(
-            params.q_moduli_chain_at_level(0).len(),
-            params.ring_size(),
-        );
-
-        simd_encode(&mut p, &values, &params, level, params.delta());
-
-        let mut m_out = vec![Complex::<f64>::zero(); ring_size >> 1];
-        simd_decode(&p, &params, level, params.delta(), &mut m_out);
-
-        // dbg!(values);
-        // dbg!(m_out);
+        print_precision_stats(&values, &values_clone);
     }
 }

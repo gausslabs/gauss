@@ -1,4 +1,4 @@
-use std::{cell::RefCell, sync::Arc};
+use std::{cell::RefCell, fmt::Display, sync::Arc};
 
 use crate::core_crypto::{
     matrix::{Matrix, MatrixMut, Row, RowMut},
@@ -7,7 +7,7 @@ use crate::core_crypto::{
     num::UnsignedInteger,
 };
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum Representation {
     Coefficient,
     Evaluation,

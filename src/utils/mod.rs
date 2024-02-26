@@ -8,6 +8,7 @@ use crate::core_crypto::{
     num::{BFloat, ComplexNumber, UnsignedInteger},
 };
 use std::{
+    fmt::{Debug, Display},
     mem,
     ops::{Add, Mul, Sub},
     sync::Arc,
@@ -240,6 +241,83 @@ pub fn psi_powers<F: BFloat, C: ComplexNumber<F>>(m: u32) -> Vec<C> {
         .into_iter()
         .map(|i| m_root_unity.powu(i as u32))
         .collect_vec()
+}
+
+/// Pretty prints precision statistics. Precision is calculated using precision
+/// of the difference between haves and wants.
+///
+/// Note that bits in maximum difference value corresponds to minimum precision
+/// and bits in mimum difference value corresponds to maximum precision
+///
+/// Mean: Average precision
+/// Max: Maximum precision
+/// Min: Minimum precision
+pub fn print_precision_stats<F: BFloat + TryFrom<u32> + Display, C: ComplexNumber<F>>(
+    have: &[C],
+    want: &[C],
+) where
+    <F as TryFrom<u32>>::Error: Debug,
+    for<'a> &'a C: Sub<&'a C, Output = C>,
+{
+    let (diff_re, diff_img): (Vec<F>, Vec<F>) = izip!(have.iter(), want.iter())
+        .map(|(h, w)| {
+            let d = h - w;
+            (d.re().abs(), d.img().abs())
+        })
+        .unzip();
+
+    // mean, max, min
+    let mut mean_re = F::zero();
+    let mut mean_img = F::zero();
+    let mut max_re = F::min_value();
+    let mut min_re = F::max_value();
+    let mut max_img = F::min_value();
+    let mut min_img = F::max_value();
+    izip!(diff_re.iter(), diff_img.iter()).for_each(|(r, i)| {
+        // mean
+        mean_re = mean_re + r;
+        mean_img = mean_img + i;
+
+        // max
+        if r > &max_re {
+            max_re = *r;
+        }
+        if i > &max_img {
+            max_img = *i;
+        }
+
+        // min
+        if r < &min_re {
+            min_re = *r;
+        }
+        if i < &min_img {
+            min_img = *i;
+        }
+    });
+    mean_re = mean_re / F::try_from(diff_re.len() as u32).unwrap();
+    mean_img = mean_img / F::try_from(diff_re.len() as u32).unwrap();
+
+    mean_re = mean_re.log2().neg();
+    mean_img = mean_img.log2().neg();
+    max_re = max_re.log2().neg();
+    max_img = max_img.log2().neg();
+    min_re = min_re.log2().neg();
+    min_img = min_img.log2().neg();
+
+    // Note that, since we work with difference between have and want, min_re/img is
+    // max precision and max_re/img is min precision
+    println!(
+        "
+        Precision stats:
+        -----
+        Reals
+        Mean: {mean_re}; Max: {min_re}; Min: {max_re}
+        -----
+        Img
+        Mean: {mean_img}; Max: {min_img}; Min: {max_img}
+        -----
+    "
+    );
 }
 
 #[cfg(test)]

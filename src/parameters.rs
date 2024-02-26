@@ -159,3 +159,10 @@ pub trait CkksEncDecParameters: Parameters {
     fn q_modops_at_level(&self, level: usize) -> &[Self::ModOp];
     fn q_nttops_at_level(&self, level: usize) -> &[Self::NttOp];
 }
+
+pub trait CkksArithmeticParameters: Parameters {
+    type ModOp: ModulusVecBackend<Self::Scalar>;
+    type NttOp: Ntt<Scalar = Self::Scalar>;
+    fn q_modops_at_level(&self, level: usize) -> &[Self::ModOp];
+    fn q_nttops_at_level(&self, level: usize) -> &[Self::NttOp];
+}
