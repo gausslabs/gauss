@@ -149,7 +149,7 @@ pub trait CkksEncDecParameters: Parameters {
     type ModOp: ModulusVecBackend<Self::Scalar>;
     type NttOp: Ntt<Scalar = Self::Scalar>;
 
-    fn delta(&self) -> Self::F;
+    fn delta(&self) -> &Self::F;
     fn psi_powers(&self) -> &[Self::Complex];
     fn rot_group(&self) -> &[usize];
     fn ring_size(&self) -> usize;

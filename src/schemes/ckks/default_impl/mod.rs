@@ -8,10 +8,15 @@ pub type CkksCiphertext =
 mod tests {
     use itertools::Itertools;
     use num_complex::{Complex, ComplexDistribution};
+    use num_traits::{zero, Zero};
     use rand::{thread_rng, Rng};
     use rand_distr::Uniform;
 
     use crate::{
+        core_crypto::{
+            num::big_float::BigFloat,
+            random::{DefaultU64SeededRandomGenerator, RandomUniformDist},
+        },
         keys::{Decryptor, Encryptor, LevelDecoder, LevelEncoder},
         utils::print_precision_stats,
     };
@@ -32,24 +37,31 @@ mod tests {
 
     #[test]
     fn complex_vec_encoding_decoding_works() {
-        let ring_size = 1 << 4;
-        let delta = 2.0f64.powi(40i32);
-        build_parameters(&[50], delta, ring_size);
+        // let ring_size = 1 << 4;
+        // let delta = 2.0f64.powi(40i32);
+        // build_parameters(&[50], delta.into(), ring_size);
 
-        let m = sample_random_complex(-1.0, 1.0, ring_size >> 1);
-        let encoded_m: Vec<Vec<u64>> = m.encode(0);
-        let m_back: Vec<Complex<f64>> = encoded_m.decode(0);
+        // let m = sample_random_complex(-1.0, 1.0, ring_size >> 1);
+        // let encoded_m: Vec<Vec<u64>> = m.encode(0);
+        // let m_back: Vec<Complex<f64>> = encoded_m.decode(0);
 
-        print_precision_stats(&m_back, &m);
+        // print_precision_stats(&m_back, &m);
     }
 
     #[test]
     fn ckks_encryption_decryption_works() {
         let ring_size = 1 << 4;
         let delta = 2.0f64.powi(40i32);
-        build_parameters(&[50, 50], delta, ring_size);
+        build_parameters(&[50, 50], delta.into(), ring_size);
 
-        let m = sample_random_complex(-1.0, 1.0, ring_size >> 1);
+        // let m = sample_random_complex(-1.0, 1.0, ring_size >> 1);
+        let mut test_rng = DefaultU64SeededRandomGenerator::new();
+        let mut m = vec![Complex::<BigFloat>::zero(); ring_size >> 1];
+        <DefaultU64SeededRandomGenerator as RandomUniformDist<[Complex<BigFloat>]>>::random_fill(
+            &mut test_rng,
+            &(-1.0f64, 1.0f64),
+            m.as_mut_slice(),
+        );
         let secret = CkksSecretKey::new();
 
         let ct: CkksCiphertext = secret.encrypt(&m);

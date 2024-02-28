@@ -10,7 +10,7 @@ use crate::core_crypto::{
 use std::{
     fmt::{Debug, Display},
     mem,
-    ops::{Add, Mul, Sub},
+    ops::{Add, Mul, Neg, Sub},
     sync::Arc,
 };
 
@@ -252,12 +252,15 @@ pub fn psi_powers<F: BFloat, C: ComplexNumber<F>>(m: u32) -> Vec<C> {
 /// Mean: Average precision
 /// Max: Maximum precision
 /// Min: Minimum precision
-pub fn print_precision_stats<F: BFloat + TryFrom<u32> + Display, C: ComplexNumber<F>>(
+pub fn print_precision_stats<
+    F: BFloat + Neg<Output = F> + From<u32> + Display + Clone,
+    C: ComplexNumber<F>,
+>(
     have: &[C],
     want: &[C],
 ) where
-    <F as TryFrom<u32>>::Error: Debug,
     for<'a> &'a C: Sub<&'a C, Output = C>,
+    for<'a> &'a F: Add<&'a F, Output = F>,
 {
     let (diff_re, diff_img): (Vec<F>, Vec<F>) = izip!(have.iter(), want.iter())
         .map(|(h, w)| {
@@ -275,27 +278,27 @@ pub fn print_precision_stats<F: BFloat + TryFrom<u32> + Display, C: ComplexNumbe
     let mut min_img = F::max_value();
     izip!(diff_re.iter(), diff_img.iter()).for_each(|(r, i)| {
         // mean
-        mean_re = mean_re + r;
-        mean_img = mean_img + i;
+        mean_re = &mean_re + r;
+        mean_img = &mean_img + i;
 
         // max
         if r > &max_re {
-            max_re = *r;
+            max_re = r.clone();
         }
         if i > &max_img {
-            max_img = *i;
+            max_img = i.clone();
         }
 
         // min
         if r < &min_re {
-            min_re = *r;
+            min_re = r.clone();
         }
         if i < &min_img {
-            min_img = *i;
+            min_img = i.clone();
         }
     });
-    mean_re = mean_re / F::try_from(diff_re.len() as u32).unwrap();
-    mean_img = mean_img / F::try_from(diff_re.len() as u32).unwrap();
+    mean_re = mean_re / F::from(diff_re.len() as u32);
+    mean_img = mean_img / F::from(diff_re.len() as u32);
 
     mean_re = mean_re.log2().neg();
     mean_img = mean_img.log2().neg();

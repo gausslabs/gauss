@@ -5,7 +5,10 @@ use itertools::{izip, Itertools};
 use num_bigint::{BigInt, BigUint, ToBigInt};
 use num_traits::{ToPrimitive, Zero};
 
-use crate::core_crypto::matrix::{Matrix, MatrixMut, RowMut};
+use crate::core_crypto::{
+    matrix::{Matrix, MatrixMut, RowMut},
+    num::big_float::BigFloat,
+};
 
 use super::{mod_inverse, moduli_chain_to_biguint};
 
@@ -173,7 +176,7 @@ where
     }
 }
 
-impl<M> TryConvertFrom<M> for Vec<f64>
+impl<M> TryConvertFrom<M> for Vec<BigFloat>
 where
     M: Matrix<MatElement = u64>,
 {
@@ -206,9 +209,9 @@ where
 
             // convert x from unsigned representation to signed representation
             if x >= &big_q >> 1 {
-                out_coeffs.push(((&big_q - x).to_bigint().unwrap().neg()).to_f64().unwrap());
+                out_coeffs.push(((&big_q - x).to_bigint().unwrap().neg()).into());
             } else {
-                out_coeffs.push(x.to_bigint().unwrap().to_f64().unwrap());
+                out_coeffs.push(x.to_bigint().unwrap().to_f64().unwrap().into());
             }
         }
 

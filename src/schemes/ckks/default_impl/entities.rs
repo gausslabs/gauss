@@ -13,6 +13,7 @@ use crate::{
         matrix::{Matrix, MatrixMut, RowMut},
         modulus::{ModulusBackendConfig, ModulusVecBackend, NativeModulusBackend},
         ntt::{NativeNTTBackend, Ntt, NttConfig},
+        num::{big_float::BigFloat, BFloat, ComplexNumber},
         prime::generate_primes_vec,
         random::{DefaultU64SeededRandomGenerator, WithLocal},
         ring::{backward, foward_lazy},
@@ -27,11 +28,19 @@ use crate::{
     utils::{convert::TryConvertFrom, moduli_chain_to_biguint, psi_powers},
 };
 
+type DefaultBigFloat = crate::core_crypto::num::big_float::BigFloat;
+type DefaultComplex = Complex<DefaultBigFloat>;
+
 pub static NATIVE_CKKS_CLIENT_PARAMETERS_U64: OnceLock<
-    CkksClientParametersU64<NativeModulusBackend, NativeNTTBackend>,
+    CkksClientParametersU64<
+        NativeModulusBackend,
+        NativeNTTBackend,
+        DefaultComplex,
+        DefaultBigFloat,
+    >,
 > = OnceLock::new();
 
-impl<M: MatrixMut<MatElement = u64>> LevelEncoder<M> for Vec<Complex<f64>>
+impl<M: MatrixMut<MatElement = u64>> LevelEncoder<M> for Vec<DefaultComplex>
 where
     <M as Matrix>::R: RowMut,
 {
@@ -45,14 +54,14 @@ where
     }
 }
 
-impl<M: MatrixMut<MatElement = u64>> LevelDecoder<Vec<Complex<f64>>> for M
+impl<M: MatrixMut<MatElement = u64>> LevelDecoder<Vec<DefaultComplex>> for M
 where
     <M as Matrix>::R: RowMut,
 {
-    fn decode(&self, level: usize) -> Vec<Complex<f64>> {
+    fn decode(&self, level: usize) -> Vec<DefaultComplex> {
         CkksClientParametersU64::with_global(|params| {
             // decode
-            let mut m_out = vec![Complex::<f64>::zero(); params.ring_size() >> 1];
+            let mut m_out = vec![DefaultComplex::zero(); params.ring_size() >> 1];
             simd_decode(self, params, level, params.delta(), &mut m_out);
             m_out
         })
@@ -86,11 +95,11 @@ impl CkksSecretKey {
 }
 
 impl<M: MatrixMut<MatElement = u64> + Clone + TryConvertFrom<[i32], Parameters = [u64]>>
-    Encryptor<[Complex<f64>], CkksCiphertextGenericStorage<M>> for CkksSecretKey
+    Encryptor<[DefaultComplex], CkksCiphertextGenericStorage<M>> for CkksSecretKey
 where
     <M as Matrix>::R: RowMut,
 {
-    fn encrypt(&self, message: &[Complex<f64>]) -> CkksCiphertextGenericStorage<M> {
+    fn encrypt(&self, message: &[DefaultComplex]) -> CkksCiphertextGenericStorage<M> {
         CkksClientParametersU64::with_global(|params| {
             DefaultU64SeededRandomGenerator::with_local_mut(|rng| {
                 // encode
@@ -117,11 +126,11 @@ where
 }
 
 impl<M: MatrixMut<MatElement = u64> + Clone + TryConvertFrom<[i32], Parameters = [u64]>>
-    Decryptor<Vec<Complex<f64>>, CkksCiphertextGenericStorage<M>> for CkksSecretKey
+    Decryptor<Vec<DefaultComplex>, CkksCiphertextGenericStorage<M>> for CkksSecretKey
 where
     <M as Matrix>::R: RowMut,
 {
-    fn decrypt(&self, c: &CkksCiphertextGenericStorage<M>) -> Vec<Complex<f64>> {
+    fn decrypt(&self, c: &CkksCiphertextGenericStorage<M>) -> Vec<DefaultComplex> {
         CkksClientParametersU64::with_global(|params| {
             // decrypt
             let mut m_poly = M::zeros(
@@ -135,31 +144,36 @@ where
             backward(&mut m_poly, params.q_nttops_at_level(c.level()));
 
             // decode
-            let mut m_out = vec![Complex::<f64>::zero(); params.ring_size() >> 1];
+            let mut m_out = vec![DefaultComplex::zero(); params.ring_size() >> 1];
             simd_decode(&m_poly, params, c.level(), params.delta(), &mut m_out);
             m_out
         })
     }
 }
 
-pub struct CkksClientParametersU64<ModOp, NttOp> {
+pub struct CkksClientParametersU64<ModOp, NttOp, Comp, F> {
     q_moduli_chain: Vec<u64>,
     ring_size: usize,
-    delta: f64,
+    delta: F,
     bigq_at_level: Vec<BigUint>,
     q_moduli_chain_len: usize,
     secret_hw: usize,
 
-    psi_powers: Vec<Complex<f64>>,
+    psi_powers: Vec<Comp>,
     rot_group: Vec<usize>,
 
     q_modops: Vec<ModOp>,
     q_nttops: Vec<NttOp>,
 }
-impl<ModOp: ModulusBackendConfig<u64>, NttOp: NttConfig<Scalar = u64>>
-    CkksClientParametersU64<ModOp, NttOp>
+
+impl<
+        ModOp: ModulusBackendConfig<u64>,
+        NttOp: NttConfig<Scalar = u64>,
+        Comp: ComplexNumber<F>,
+        F: BFloat,
+    > CkksClientParametersU64<ModOp, NttOp, Comp, F>
 {
-    fn new(ring_size: usize, q_moduli_chain: Vec<u64>, delta: f64) -> Self {
+    fn new(ring_size: usize, q_moduli_chain: Vec<u64>, delta: F) -> Self {
         let m = ring_size << 1;
         let n = ring_size;
         let l = n >> 1;
@@ -203,24 +217,28 @@ impl<ModOp: ModulusBackendConfig<u64>, NttOp: NttConfig<Scalar = u64>>
     }
 }
 
-impl<M, N> Parameters for CkksClientParametersU64<M, N> {
+impl<M, N, C, F> Parameters for CkksClientParametersU64<M, N, C, F> {
     type Scalar = u64;
 }
 
-impl<ModOp: ModulusVecBackend<u64>, NttOp: Ntt<Scalar = u64>> CkksEncDecParameters
-    for CkksClientParametersU64<ModOp, NttOp>
+impl<
+        ModOp: ModulusVecBackend<u64>,
+        NttOp: Ntt<Scalar = u64>,
+        Comp: ComplexNumber<F>,
+        F: BFloat,
+    > CkksEncDecParameters for CkksClientParametersU64<ModOp, NttOp, Comp, F>
 {
     type BU = BigUint;
-    type Complex = Complex<f64>;
-    type F = f64;
+    type Complex = Comp;
+    type F = F;
     type ModOp = ModOp;
     type NttOp = NttOp;
 
     fn bigq_at_level(&self, level: usize) -> &Self::BU {
         &self.bigq_at_level[level]
     }
-    fn delta(&self) -> Self::F {
-        self.delta
+    fn delta(&self) -> &Self::F {
+        &self.delta
     }
     fn psi_powers(&self) -> &[Self::Complex] {
         &self.psi_powers
@@ -243,7 +261,9 @@ impl<ModOp: ModulusVecBackend<u64>, NttOp: Ntt<Scalar = u64>> CkksEncDecParamete
     }
 }
 
-impl WithGlobal for CkksClientParametersU64<NativeModulusBackend, NativeNTTBackend> {
+impl WithGlobal
+    for CkksClientParametersU64<NativeModulusBackend, NativeNTTBackend, Complex<BigFloat>, BigFloat>
+{
     fn with_global<F, R>(func: F) -> R
     where
         F: Fn(&Self) -> R,
@@ -317,15 +337,16 @@ where
     }
 }
 
-pub fn build_parameters(q_moduli_chain_sizes: &[usize], delta: f64, ring_size: usize) {
+pub fn build_parameters(q_moduli_chain_sizes: &[usize], delta: DefaultBigFloat, ring_size: usize) {
     let q_moduli_chain = generate_primes_vec(q_moduli_chain_sizes, ring_size, &[]);
 
     // Client side parameters
-    let parameters = CkksClientParametersU64::<NativeModulusBackend, NativeNTTBackend>::new(
-        ring_size,
-        q_moduli_chain,
-        delta,
-    );
+    let parameters = CkksClientParametersU64::<
+        NativeModulusBackend,
+        NativeNTTBackend,
+        DefaultComplex,
+        DefaultBigFloat,
+    >::new(ring_size, q_moduli_chain, delta);
 
     NATIVE_CKKS_CLIENT_PARAMETERS_U64.get_or_init(|| parameters);
 }

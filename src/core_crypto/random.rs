@@ -1,11 +1,15 @@
 use std::cell::RefCell;
 
 use itertools::{izip, Itertools};
+use num_complex::Complex;
 use rand::{distributions::Uniform, thread_rng, CryptoRng, Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rand_distr::{Distribution, Normal};
 
-use super::matrix::{Matrix, MatrixMut, RowMut};
+use super::{
+    matrix::{Matrix, MatrixMut, RowMut},
+    num::big_float::BigFloat,
+};
 
 pub trait RandomGaussianDist<M>
 where
@@ -183,6 +187,31 @@ impl RandomGaussianDist<[u64]> for DefaultU64SeededRandomGenerator {
             normal.sample_iter(&mut self.rng)
         )
         .for_each(|(r_el, random_el)| *r_el = (random_el as f64).round() as u64);
+    }
+}
+
+impl RandomUniformDist<[Complex<BigFloat>]> for DefaultU64SeededRandomGenerator {
+    // Low - High
+    type Parameters = (f64, f64);
+    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [Complex<BigFloat>]) {
+        let mut floats = Uniform::new(parameters.0, parameters.1).sample_iter(&mut self.rng);
+        container.iter_mut().for_each(|c| {
+            *c = Complex::<BigFloat>::new(
+                floats.next().unwrap().into(),
+                floats.next().unwrap().into(),
+            );
+        });
+    }
+}
+
+impl RandomUniformDist<[Complex<f64>]> for DefaultU64SeededRandomGenerator {
+    // Low - High
+    type Parameters = (f64, f64);
+    fn random_fill(&mut self, parameters: &Self::Parameters, container: &mut [Complex<f64>]) {
+        let mut floats = Uniform::new(parameters.0, parameters.1).sample_iter(&mut self.rng);
+        container.iter_mut().for_each(|c| {
+            *c = Complex::<f64>::new(floats.next().unwrap().into(), floats.next().unwrap().into());
+        });
     }
 }
 

@@ -1,7 +1,8 @@
 use itertools::{izip, Itertools};
 use std::{
     fmt::Debug,
-    ops::{Rem, Sub},
+    ops::{Add, Div, Mul, Rem, Sub},
+    process::Output,
 };
 
 use crate::{
@@ -9,7 +10,7 @@ use crate::{
     core_crypto::{
         matrix::{Matrix, MatrixMut, RowMut},
         modulus::ModulusVecBackend,
-        num::{BFloat, BInt, BUint, CastToZp, ComplexNumber, UnsignedInteger},
+        num::{BFloat, BInt, BUInt, CastToZp, ComplexNumber, UnsignedInteger},
         random::{InitWithSeed, RandomGaussianDist, RandomUniformDist},
         ring::{
             add_lazy_mut, foward, foward_lazy, mul_lazy_mut, neg_lazy_mut, neg_mut,
@@ -21,11 +22,16 @@ use crate::{
     utils::{bit_reverse_map, convert::TryConvertFrom},
 };
 
-pub fn special_inv_fft<F: BFloat, C: ComplexNumber<F> + Clone + Copy>(
+pub fn special_inv_fft<F: BFloat + From<u32>, C: ComplexNumber<F> + Clone>(
     v: &mut [C],
     psi_powers: &[C],
     rot_group: &[usize],
-) {
+) where
+    for<'a> &'a C: Add<&'a C, Output = C>
+        + Sub<&'a C, Output = C>
+        + Mul<&'a C, Output = C>
+        + Div<&'a F, Output = C>,
+{
     debug_assert!(
         v.len().is_power_of_two(),
         "Expected length of input to be power of 2 but is {}",
@@ -51,9 +57,9 @@ pub fn special_inv_fft<F: BFloat, C: ComplexNumber<F> + Clone + Copy>(
                 let idx = (lenq - (rot_group[j] % lenq)) * gap;
 
                 // X + Y
-                let u = v[i + j] + &v[i + j + lenh];
+                let u = &v[i + j] + &v[i + j + lenh];
                 // (X - Y) \cdot \psi_{idx}
-                let k = (v[i + j] - v[i + j + lenh]) * psi_powers[idx];
+                let k = (&v[i + j] - &v[i + j + lenh]) * &psi_powers[idx];
 
                 v[i + j] = u;
                 v[i + j + lenh] = k;
@@ -64,15 +70,16 @@ pub fn special_inv_fft<F: BFloat, C: ComplexNumber<F> + Clone + Copy>(
     }
 
     bit_reverse_map(v);
-    v.iter_mut()
-        .for_each(|a| *a = *a / &F::from(v_len).unwrap());
+    v.iter_mut().for_each(|a| *a = &*a / &F::from(v_len as u32));
 }
 
-pub fn special_fft<F: BFloat, C: ComplexNumber<F> + Copy>(
+pub fn special_fft<F: BFloat, C: ComplexNumber<F> + Clone>(
     v: &mut [C],
     psi_powers: &[C],
     rot_group: &[usize],
-) {
+) where
+    for<'a> &'a C: Mul<&'a C, Output = C> + Add<&'a C, Output = C>,
+{
     debug_assert!(
         v.len().is_power_of_two(),
         "Expected length of input to be power of 2 but is {}",
@@ -99,14 +106,13 @@ pub fn special_fft<F: BFloat, C: ComplexNumber<F> + Copy>(
             for j in 0..lenh {
                 let idx = (rot_group[j] % lenq) * gap;
 
-                // TODO(Jay): Remove bound of Copy
-                let u = v[i + j];
-                let k = v[i + j + lenh] * psi_powers[idx];
+                let u = v[i + j].clone();
+                let k = &v[i + j + lenh] * &psi_powers[idx];
 
                 // X + \psi Y
-                v[i + j] = u + k;
+                v[i + j] = &u + &k;
                 // X - \psi Y
-                v[i + j + lenh] = u - k;
+                v[i + j + lenh] = u - &k;
             }
         }
         m <<= 1;
@@ -114,22 +120,27 @@ pub fn special_fft<F: BFloat, C: ComplexNumber<F> + Copy>(
 }
 
 pub fn simd_encode<
-    Scalar: UnsignedInteger + TryFrom<Uint>,
-    Uint: BUint,
-    F: BFloat + CastToZp<Uint>,
-    C: ComplexNumber<F> + Clone + Copy,
+    Scalar: UnsignedInteger + TryFrom<UInt>,
+    UInt: BUInt,
+    F: BFloat + CastToZp<UInt> + From<u32>,
+    C: ComplexNumber<F> + Clone + Debug,
     MMut: MatrixMut<MatElement = Scalar>,
-    P: CkksEncDecParameters<F = F, Scalar = Scalar, BU = Uint, Complex = C>,
+    P: CkksEncDecParameters<F = F, Scalar = Scalar, BU = UInt, Complex = C>,
 >(
     p: &mut MMut,
     m: &[C],
     params: &P,
     level: usize,
-    delta: F,
+    delta: &F,
 ) where
-    <Scalar as TryFrom<Uint>>::Error: Debug,
-    for<'a> &'a Uint: Rem<Scalar, Output = Uint> + Sub<&'a Uint, Output = Uint>,
+    <Scalar as TryFrom<UInt>>::Error: Debug,
+    for<'a> &'a UInt: Rem<Scalar, Output = UInt> + Sub<&'a UInt, Output = UInt>,
     <MMut as Matrix>::R: RowMut,
+    for<'a> &'a C: Add<&'a C, Output = C>
+        + Mul<&'a C, Output = C>
+        + Sub<&'a C, Output = C>
+        + Mul<&'a F, Output = C>
+        + Div<&'a F, Output = C>,
 {
     let ring_size = params.ring_size();
     let slots = ring_size >> 1;
@@ -158,23 +169,25 @@ pub fn simd_encode<
     let mut m = m.to_vec();
     special_inv_fft(&mut m, &psi_powers, &rot_group);
 
+    dbg!(&m);
     // scale by delta
     izip!(m.iter_mut()).for_each(|v| {
-        *v = *v * &delta;
+        *v = &*v * delta;
     });
+    dbg!(&m);
 
     let q_moduli_chain = params.q_moduli_chain_at_level(level);
     let big_q = params.bigq_at_level(level);
 
     for ri in 0..ring_size >> 1 {
-        let delta_m_ri = CastToZp::cast(&m[ri].re(), big_q);
+        let delta_m_ri = CastToZp::cast(m[ri].re(), big_q);
         izip!(p.get_col_iter_mut(ri), q_moduli_chain.iter()).for_each(|(x_qi, qi)| {
             *x_qi = (&delta_m_ri % *qi).try_into().unwrap();
         });
     }
 
     for ri in ring_size >> 1..ring_size {
-        let delta_m_ri = CastToZp::cast(&m[ri - (ring_size >> 1)].img(), big_q);
+        let delta_m_ri = CastToZp::cast(m[ri - (ring_size >> 1)].img(), big_q);
         izip!(p.get_col_iter_mut(ri), q_moduli_chain.iter()).for_each(|(x_qi, qi)| {
             *x_qi = (&delta_m_ri % *qi).try_into().unwrap();
         });
@@ -183,43 +196,49 @@ pub fn simd_encode<
 
 pub fn simd_decode<
     Scalar: UnsignedInteger,
-    F: BFloat,
-    // TODO(Jay): Remove Copy bound
-    C: ComplexNumber<F> + Copy,
+    F: BFloat + Clone,
+    C: ComplexNumber<F> + Clone,
     M: Matrix<MatElement = Scalar>,
     P: CkksEncDecParameters<F = F, Scalar = Scalar, Complex = C>,
 >(
     p: &M,
     params: &P,
     level: usize,
-    delta: F,
+    delta: &F,
     m_out: &mut [C],
 ) where
     Vec<F>: TryConvertFrom<M, Parameters = [Scalar]>,
+    for<'a> &'a F: Div<&'a F, Output = F>,
+    for<'a> &'a C: Mul<&'a C, Output = C> + Add<&'a C, Output = C>,
 {
     let ring_size = params.ring_size();
     let slots = ring_size >> 1;
+
     debug_assert!(
         m_out.len() == ring_size >> 1,
         "Expected m_out to have {} slots but has {}",
         slots,
         m_out.len()
     );
+    debug_assert!(
+        p.dimension() == (params.q_moduli_chain_at_level(level).len(), ring_size),
+        "Expected p to have dimension {:?} but has {:?}",
+        (params.q_moduli_chain_at_level(level).len(), ring_size),
+        p.dimension()
+    );
 
     let q_moduli_chain = params.q_moduli_chain_at_level(level);
     // TODO(Jay): `try_convert_from` first computes recomposition factors. Hence is
-    // quie expensive.
+    // quite expensive.
     let mut p_reals = Vec::<F>::try_convert_from(p, &q_moduli_chain);
-    p_reals
-        .iter_mut()
-        .map(|v| {
-            // scale by 1/delta
-            *v = *v / delta;
-        })
-        .collect_vec();
+    p_reals.iter_mut().for_each(|v| {
+        // scale by 1/delta
+        *v = &*v / delta;
+    });
 
+    // TODO(Jay): Is there a way to do this without clones ?
     for k in 0..slots {
-        m_out[k] = C::new(p_reals[k], p_reals[slots + k]);
+        m_out[k] = C::new(p_reals[k].clone(), p_reals[slots + k].clone());
     }
 
     let psi_powers = params.psi_powers();
@@ -433,9 +452,16 @@ pub fn ciphertext_sub<
 
 #[cfg(test)]
 mod tests {
+    use std::hash::DefaultHasher;
+
     use crate::{
         core_crypto::{
-            modulus::NativeModulusBackend, ntt::NativeNTTBackend, prime::generate_primes_vec, ring,
+            modulus::NativeModulusBackend,
+            ntt::NativeNTTBackend,
+            num::big_float::BigFloat,
+            prime::generate_primes_vec,
+            random::{DefaultU64SeededRandomGenerator, DEFAULT_U64_SEEDED_RNG},
+            ring,
         },
         parameters::Parameters,
         utils::{moduli_chain_to_biguint, print_precision_stats, psi_powers},
@@ -464,13 +490,13 @@ mod tests {
         }
 
         // vec of length l with random complex values
-        let reals = Uniform::new(0.0, 100.0);
-        let imags = Uniform::new(0.0, 100.0);
-        let complex_distr = ComplexDistribution::new(reals, imags);
-        let mut values = thread_rng()
-            .sample_iter(complex_distr)
-            .take(l)
-            .collect_vec();
+        let mut test_rng = DefaultU64SeededRandomGenerator::new();
+        let mut values = vec![Complex::<BigFloat>::zero(); l];
+        <DefaultU64SeededRandomGenerator as RandomUniformDist<[Complex<BigFloat>]>>::random_fill(
+            &mut test_rng,
+            &(-1.0f64, 1.0f64),
+            &mut values,
+        );
 
         let psi_powers = psi_powers(m as u32);
 
