@@ -1,6 +1,6 @@
 use itertools::{izip, Itertools};
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     ops::{Add, Div, Mul, Rem, Sub},
     process::Output,
 };
@@ -122,8 +122,8 @@ pub fn special_fft<F: BFloat, C: ComplexNumber<F> + Clone>(
 pub fn simd_encode<
     Scalar: UnsignedInteger + TryFrom<UInt>,
     UInt: BUInt,
-    F: BFloat + CastToZp<UInt> + From<u32>,
-    C: ComplexNumber<F> + Clone + Debug,
+    F: BFloat + CastToZp<UInt> + From<u32> + Display,
+    C: ComplexNumber<F> + Clone + Display,
     MMut: MatrixMut<MatElement = Scalar>,
     P: CkksEncDecParameters<F = F, Scalar = Scalar, BU = UInt, Complex = C>,
 >(
@@ -169,12 +169,12 @@ pub fn simd_encode<
     let mut m = m.to_vec();
     special_inv_fft(&mut m, &psi_powers, &rot_group);
 
-    dbg!(&m);
+    // println!("{}", &m[0]);
     // scale by delta
     izip!(m.iter_mut()).for_each(|v| {
         *v = &*v * delta;
     });
-    dbg!(&m);
+    // println!("{}", &m[0]);
 
     let q_moduli_chain = params.q_moduli_chain_at_level(level);
     let big_q = params.bigq_at_level(level);

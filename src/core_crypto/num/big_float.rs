@@ -238,7 +238,7 @@ impl From<u32> for BigFloat {
 impl From<BigInt> for BigFloat {
     fn from(value: BigInt) -> Self {
         let mut consts = Consts::new().unwrap();
-        let (sign, digits) = value.to_radix_be(16);
+        let (sign, digits) = value.to_radix_be(10);
         let sign = if sign == num_bigint::Sign::Minus {
             astro_float::Sign::Neg
         } else {
@@ -247,8 +247,8 @@ impl From<BigInt> for BigFloat {
         BigFloat(AstroBFloat::convert_from_radix(
             sign,
             &digits,
-            1,
-            astro_float::Radix::Hex,
+            digits.len() as i32,
+            astro_float::Radix::Dec,
             PRECISION,
             ROUNDING_MODE,
             &mut consts,
@@ -259,21 +259,33 @@ impl From<BigInt> for BigFloat {
 impl CastToZp<BigUint> for BigFloat {
     fn cast(&self, q: &BigUint) -> BigUint {
         let mut consts = Consts::new().unwrap();
-
-        let (sign, radix_repr, ex) = self
+        let (sign, radix_repr, mut ex) = self
             .0
-            .round(PRECISION, ROUNDING_MODE)
-            .convert_to_radix(astro_float::Radix::Hex, ROUNDING_MODE, &mut consts)
+            .round(0, ROUNDING_MODE)
+            .convert_to_radix(astro_float::Radix::Dec, ROUNDING_MODE, &mut consts)
             .unwrap();
 
-        assert!(sign.is_positive());
+        if ex < 0 {
+            ex = 0;
+        }
 
-        BigUint::from_radix_le(&radix_repr, 16).unwrap() % q
+        let v = BigUint::from_radix_be(&radix_repr[..(ex as usize)], 10).unwrap() % q;
+
+        if sign.is_negative() {
+            return q - v;
+        }
+
+        v
     }
 }
 
 impl std::fmt::Display for BigFloat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <AstroBFloat as std::fmt::Display>::fmt(&self.0, f)
+        f.write_str(&self.0.to_string())
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 }
