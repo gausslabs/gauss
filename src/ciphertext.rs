@@ -1,7 +1,7 @@
 use std::{cell::RefCell, fmt::Display, sync::Arc};
 
 use crate::core_crypto::{
-    matrix::{Matrix, MatrixMut, Row, RowMut},
+    matrix::{Matrix, MatrixEntity, MatrixMut, Row, RowMut},
     modulus::NativeModulusBackend,
     ntt::NativeNTTBackend,
     num::UnsignedInteger,
@@ -17,7 +17,8 @@ pub trait Ciphertext {
     type Scalar: UnsignedInteger;
     type Row: Row<Element = Self::Scalar> + RowMut<Element = Self::Scalar>;
     type Poly: Matrix<MatElement = Self::Scalar>
-        + MatrixMut<MatElement = Self::Scalar, R = Self::Row>;
+        + MatrixMut<MatElement = Self::Scalar, R = Self::Row>
+        + MatrixEntity;
 
     fn representation(&self) -> Representation;
     fn representation_mut(&mut self) -> &mut Representation;

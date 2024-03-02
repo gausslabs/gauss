@@ -670,6 +670,7 @@ mod tests {
 
     use crate::{
         core_crypto::{
+            matrix::MatrixEntity,
             modulus::{ModulusBackendConfig, NativeModulusBackend},
             ntt::NativeNTTBackend,
             prime::generate_primes_vec,
@@ -731,7 +732,7 @@ mod tests {
 
         let mut test = DefaultU64SeededRandomGenerator::new();
 
-        let mut poly_q_in = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
+        let mut poly_q_in = <Vec<Vec<u64>> as MatrixEntity>::zeros(q_chain.len(), n);
         RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test, &q_chain, &mut poly_q_in);
         let mut poly_p_out = Vec::<Vec<u64>>::zeros(p_chain.len(), n);
 
@@ -828,10 +829,10 @@ mod tests {
 
         let mut test_rng = DefaultU64SeededRandomGenerator::new();
 
-        let mut poly_q_in = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
+        let mut poly_q_in = <Vec<Vec<u64>> as MatrixEntity>::zeros(q_chain.len(), n);
         RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &q_chain, &mut poly_q_in);
 
-        let mut poly_p_out = Vec::<Vec<u64>>::zeros(p_chain.len(), n);
+        let mut poly_p_out = <Vec<Vec<u64>> as MatrixEntity>::zeros(p_chain.len(), n);
 
         switch_crt_basis(
             &mut poly_p_out,
@@ -932,8 +933,8 @@ mod tests {
         let mut test_rng = DefaultU64SeededRandomGenerator::new();
 
         // P U Q
-        let mut poly_q_in = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
-        let mut poly_p_in = <Vec<Vec<u64>> as Matrix>::zeros(p_chain.len(), n);
+        let mut poly_q_in = <Vec<Vec<u64>> as MatrixEntity>::zeros(q_chain.len(), n);
+        let mut poly_p_in = <Vec<Vec<u64>> as MatrixEntity>::zeros(p_chain.len(), n);
         RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &q_chain, &mut poly_q_in);
         RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &p_chain, &mut poly_p_in);
 
@@ -1040,7 +1041,7 @@ mod tests {
 
         let mut test_rng = DefaultU64SeededRandomGenerator::new();
 
-        let mut poly_q_in = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
+        let mut poly_q_in = <Vec<Vec<u64>> as MatrixEntity>::zeros(q_chain.len(), n);
         RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &q_chain, &mut poly_q_in);
 
         let mut poly_t_out = Vec::<Vec<u64>>::zeros(1, n);
@@ -1155,8 +1156,8 @@ mod tests {
         let mut test_rng = DefaultU64SeededRandomGenerator::new();
 
         // Random polynomial in QP
-        let mut poly0_q_part = <Vec<Vec<u64>> as Matrix>::zeros(q_chain.len(), n);
-        let mut poly0_p_part = <Vec<Vec<u64>> as Matrix>::zeros(p_chain.len(), n);
+        let mut poly0_q_part = <Vec<Vec<u64>> as MatrixEntity>::zeros(q_chain.len(), n);
+        let mut poly0_p_part = <Vec<Vec<u64>> as MatrixEntity>::zeros(p_chain.len(), n);
         RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &q_chain, &mut poly0_q_part);
         RandomUniformDist::<Vec<Vec<u64>>>::random_fill(&mut test_rng, &p_chain, &mut poly0_p_part);
 

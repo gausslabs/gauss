@@ -5,7 +5,7 @@ use rand::{CryptoRng, RngCore};
 use crate::{
     ciphertext::{Ciphertext, InitLevelledCiphertext, Representation, RlweCiphertext},
     core_crypto::{
-        matrix::{Matrix, MatrixMut, RowMut},
+        matrix::{Matrix, MatrixEntity, MatrixMut, RowMut},
         modulus::ModulusVecBackend,
         ntt::Ntt,
         num::UnsignedInteger,
@@ -72,7 +72,7 @@ pub fn simd_decode_message<
 
 pub fn secret_key_encryption<
     Scalar: UnsignedInteger,
-    Poly: MatrixMut<MatElement = Scalar>,
+    Poly: MatrixMut<MatElement = Scalar> + MatrixEntity,
     S: SecretKey<Scalar = i32>,
     P: BfvEncryptionParameters<Scalar = Scalar>,
     C: RlweCiphertext<Poly = Poly> + InitLevelledCiphertext<C = Vec<Poly>>,
@@ -303,7 +303,7 @@ pub fn ciphertext_mul<
     let ring_size = parameters.ring_size();
 
     // Scale and round c1 in basis Q by \frac{P}{Q} and output c0 in basis P
-    let mut poverq_c10_partp = <C::Poly as Matrix>::zeros(p_size, ring_size);
+    let mut poverq_c10_partp = <C::Poly>::zeros(p_size, ring_size);
     fast_convert_p_over_q(
         &mut poverq_c10_partp,
         &c1.c_partq()[0],

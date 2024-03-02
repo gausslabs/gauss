@@ -2,16 +2,15 @@ use std::fmt::Debug;
 
 use aligned_vec::{avec, AVec};
 use itertools::Itertools;
+use num_traits::Zero;
 
 use crate::core_crypto::num::UnsignedInteger;
 
-pub trait Matrix: AsRef<[Self::R]> + Debug {
+pub trait Matrix: AsRef<[Self::R]> {
     type MatElement;
     type R: Row<Element = Self::MatElement>;
 
     fn dimension(&self) -> (usize, usize);
-
-    fn zeros(row: usize, col: usize) -> Self;
 
     fn get_row(&self, row_idx: usize) -> &Self::R {
         &self.as_ref()[row_idx]
@@ -43,6 +42,16 @@ where
         self.as_mut()[row_idx].as_mut()[column_idx] = val;
     }
 
+    /*  Ideally, you want the return type to be MatrixMut, However this is not doable because of object safety
+    However, when R is a vector or align vector, the result will always be a matrixmut because we explicitly implemented MatrixMut
+    for them.
+
+    Note the postion idx is included in the second half
+    */
+    fn split(&mut self, idx: usize) -> (&mut [<Self as Matrix>::R], &mut [<Self as Matrix>::R]) {
+        self.as_mut().split_at_mut(idx)
+    }
+
     fn get_col_iter_mut(
         &mut self,
         column_idx: usize,
@@ -65,6 +74,13 @@ where
     ) -> &mut <Self as Matrix>::MatElement {
         &mut self.as_mut()[row_idx].as_mut()[column_idx]
     }
+}
+
+pub trait MatrixEntity: Matrix
+where
+    <Self as Matrix>::MatElement: Zero,
+{
+    fn zeros(row: usize, col: usize) -> Self;
 }
 
 pub trait Drop2Dimension: Matrix {
@@ -128,40 +144,80 @@ impl<T> IntoRowOwned for aligned_vec::ABox<[T]> {
     }
 }
 
-impl<T> Matrix for AVec<AVec<T>>
-where
-    T: UnsignedInteger,
-{
+impl<T> Matrix for AVec<AVec<T>> {
     type MatElement = T;
     type R = AVec<T>;
 
-    fn zeros(row: usize, col: usize) -> Self {
-        avec![avec![T::zero(); col]; row]
-    }
-
     fn dimension(&self) -> (usize, usize) {
         (self.len(), self[0].len())
     }
 }
 
-impl<T> MatrixMut for AVec<AVec<T>> where T: UnsignedInteger {}
+impl<T> MatrixMut for AVec<AVec<T>> {}
 
-impl<T> Matrix for Vec<Vec<T>>
+impl<T> MatrixEntity for AVec<AVec<T>>
 where
-    T: UnsignedInteger,
+    T: Zero + Clone,
 {
+    fn zeros(row: usize, col: usize) -> Self {
+        avec![avec![T::zero();col];row]
+    }
+}
+
+impl<T> Matrix for Vec<Vec<T>> {
     type MatElement = T;
     type R = Vec<T>;
 
+    fn dimension(&self) -> (usize, usize) {
+        (self.len(), self[0].len())
+    }
+}
+impl<T> MatrixMut for Vec<Vec<T>> {}
+
+impl<T> MatrixEntity for Vec<Vec<T>>
+where
+    T: Zero + Clone,
+{
     fn zeros(row: usize, col: usize) -> Self {
         vec![vec![T::zero(); col]; row]
     }
+}
+impl<T> Matrix for &[Vec<T>] {
+    type MatElement = T;
+    type R = Vec<T>;
 
     fn dimension(&self) -> (usize, usize) {
         (self.len(), self[0].len())
     }
 }
-impl<T> MatrixMut for Vec<Vec<T>> where T: UnsignedInteger {}
+
+impl<T> Matrix for &mut [Vec<T>] {
+    type MatElement = T;
+    type R = Vec<T>;
+
+    fn dimension(&self) -> (usize, usize) {
+        (self.len(), self[0].len())
+    }
+}
+impl<T> MatrixMut for &mut [Vec<T>] {}
+
+impl<T> Matrix for &[AVec<T>] {
+    type MatElement = T;
+    type R = AVec<T>;
+
+    fn dimension(&self) -> (usize, usize) {
+        (self.len(), self[0].len())
+    }
+}
+impl<T> Matrix for &mut [AVec<T>] {
+    type MatElement = T;
+    type R = AVec<T>;
+
+    fn dimension(&self) -> (usize, usize) {
+        (self.len(), self[0].len())
+    }
+}
+impl<T> MatrixMut for &mut [AVec<T>] {}
 
 #[cfg(test)]
 mod test {
@@ -235,5 +291,15 @@ mod test {
 
         v3.set(1, 1, 0);
         assert_eq!(0, v3[1][1]);
+    }
+
+    #[test]
+    fn test_matrix_split() {
+        let v1 = vec![1_u64, 2_u64];
+        let v2 = vec![3_u64, 4_u64];
+        let mut v3 = vec![v1, v2];
+        let (mut first, mut second) = v3.split(1);
+        first.set(0, 0, 0);
+        assert_eq!(v3[0][0], 0)
     }
 }

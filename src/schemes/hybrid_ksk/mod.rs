@@ -377,7 +377,7 @@ mod tests {
 
     use crate::{
         core_crypto::{
-            matrix::{Matrix, MatrixMut},
+            matrix::{Matrix, MatrixEntity, MatrixMut},
             modulus::ModulusVecBackend,
             prime::generate_primes_vec,
             random::{DefaultU64SeededRandomGenerator, InitWithSeed, RandomUniformDist},
@@ -432,8 +432,10 @@ mod tests {
                 let q_modops_at_level =
                     HybridKskKeyGenParameters::q_modops_at_level(&hybrid_ksk_params, level);
 
-                let mut p1 =
-                    <Vec<Vec<u64>> as Matrix>::zeros(q_moduli_chain_at_level.len(), ring_size);
+                let mut p1 = <Vec<Vec<u64>> as MatrixEntity>::zeros(
+                    q_moduli_chain_at_level.len(),
+                    ring_size,
+                );
                 RandomUniformDist::random_fill(&mut rng, q_moduli_chain_at_level, &mut p1);
 
                 let secret = TestTernarySecret::new(&mut rng, ring_size);
@@ -442,7 +444,7 @@ mod tests {
                 let mut ksk_polys = (0..(hybrid_ksk_params.alpha_at_level(level) * 2))
                     .into_iter()
                     .map(|_| {
-                        <Vec<Vec<u64>> as Matrix>::zeros(
+                        <Vec<Vec<u64>> as MatrixEntity>::zeros(
                             hybrid_ksk_params.q_union_speciap_size_at_level(level),
                             ring_size,
                         )
@@ -552,13 +554,17 @@ mod tests {
                     }
                 }
 
-                let mut p2 =
-                    <Vec<Vec<u64>> as Matrix>::zeros(q_moduli_chain_at_level.len(), ring_size);
+                let mut p2 = <Vec<Vec<u64>> as MatrixEntity>::zeros(
+                    q_moduli_chain_at_level.len(),
+                    ring_size,
+                );
                 RandomUniformDist::random_fill(&mut rng, q_moduli_chain_at_level, &mut p2);
 
                 // Create key switch ciphertext polynomials
-                let mut c0_out =
-                    <Vec<Vec<u64>> as Matrix>::zeros(q_moduli_chain_at_level.len(), ring_size);
+                let mut c0_out = <Vec<Vec<u64>> as MatrixEntity>::zeros(
+                    q_moduli_chain_at_level.len(),
+                    ring_size,
+                );
                 let mut c1_out = c0_out.clone();
                 // Key switch
                 keyswitch(
