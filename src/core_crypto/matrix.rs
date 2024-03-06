@@ -48,7 +48,7 @@ where
 
     Note the postion idx is included in the second half
     */
-    fn split(&mut self, idx: usize) -> (&mut [<Self as Matrix>::R], &mut [<Self as Matrix>::R]) {
+    fn split_at_row(&mut self, idx: usize) -> (&mut [<Self as Matrix>::R], &mut [<Self as Matrix>::R]) {
         self.as_mut().split_at_mut(idx)
     }
 
@@ -298,7 +298,7 @@ mod test {
         let v1 = vec![1_u64, 2_u64];
         let v2 = vec![3_u64, 4_u64];
         let mut v3 = vec![v1, v2];
-        let (mut first, mut second) = v3.split(1);
+        let (mut first, mut second) = v3.split_at_row(1);
         first.set(0, 0, 0);
         assert_eq!(v3[0][0], 0)
     }
