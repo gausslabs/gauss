@@ -199,7 +199,7 @@ where
 
         let (_, ring_size) = value.dimension();
 
-        let mut out_coeffs = vec![];
+        let mut out_coeffs: Vec<BigFloat> = vec![];
         for ri in 0..ring_size {
             let mut x = BigUint::zero();
             value.get_col_iter(ri).enumerate().for_each(|(i, xi)| {
@@ -209,9 +209,9 @@ where
 
             // convert x from unsigned representation to signed representation
             if x >= &big_q >> 1 {
-                out_coeffs.push(((&big_q - x).to_bigint().unwrap().neg()).into());
+                out_coeffs.push((&((&big_q - x).to_bigint().unwrap().neg())).into());
             } else {
-                out_coeffs.push(x.to_bigint().unwrap().to_f64().unwrap().into());
+                out_coeffs.push((&(x.to_bigint().unwrap())).into());
             }
         }
 

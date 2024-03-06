@@ -22,6 +22,12 @@ use crate::{
     utils::{bit_reverse_map, convert::TryConvertFrom},
 };
 
+pub trait ScaledCkksCiphertext: RlweCiphertext {
+    type F: BFloat;
+    fn scale(&self) -> &Self::F;
+    fn scale_mut(&mut self) -> &mut Self::F;
+}
+
 pub fn special_inv_fft<F: BFloat + From<u32>, C: ComplexNumber<F> + Clone>(
     v: &mut [C],
     psi_powers: &[C],
@@ -169,12 +175,10 @@ pub fn simd_encode<
     let mut m = m.to_vec();
     special_inv_fft(&mut m, &psi_powers, &rot_group);
 
-    // println!("{}", &m[0]);
     // scale by delta
     izip!(m.iter_mut()).for_each(|v| {
         *v = &*v * delta;
     });
-    // println!("{}", &m[0]);
 
     let q_moduli_chain = params.q_moduli_chain_at_level(level);
     let big_q = params.bigq_at_level(level);
@@ -470,7 +474,7 @@ mod tests {
     use super::*;
     use itertools::Itertools;
     use num_bigint::BigUint;
-    use num_complex::{Complex, Complex64, ComplexDistribution};
+    use num_complex::{Complex, ComplexDistribution};
     use num_traits::{zero, Zero};
     use rand::{distributions::Uniform, thread_rng, Rng};
 

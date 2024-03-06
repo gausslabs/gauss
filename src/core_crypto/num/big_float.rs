@@ -4,10 +4,10 @@ use std::{
     sync::OnceLock,
 };
 
-use astro_float::{BigFloat as AstroBFloat, Consts};
+use astro_float::{BigFloat as AstroBFloat, Consts, Sign};
 use num_bigint::{BigInt, BigUint};
 use num_complex::Complex;
-use num_traits::{Float, Num, NumOps, NumRef, One, Zero};
+use num_traits::{Float, FromPrimitive, Num, NumOps, NumRef, One, Zero};
 
 use super::{BFloat, CastToZp, ComplexNumber};
 
@@ -15,6 +15,7 @@ use super::{BFloat, CastToZp, ComplexNumber};
 pub struct BigFloat(AstroBFloat);
 
 const PRECISION: usize = 256usize;
+const MATISSA_LEN: usize = PRECISION / astro_float::WORD_BIT_SIZE;
 const ROUNDING_MODE: astro_float::RoundingMode = astro_float::RoundingMode::None;
 
 fn astro_one() -> &'static AstroBFloat {
@@ -235,8 +236,8 @@ impl From<u32> for BigFloat {
     }
 }
 
-impl From<BigInt> for BigFloat {
-    fn from(value: BigInt) -> Self {
+impl From<&BigInt> for BigFloat {
+    fn from(value: &BigInt) -> Self {
         let mut consts = Consts::new().unwrap();
         let (sign, digits) = value.to_radix_be(10);
         let sign = if sign == num_bigint::Sign::Minus {
@@ -256,26 +257,51 @@ impl From<BigInt> for BigFloat {
     }
 }
 
+impl From<&BigFloat> for BigInt {
+    fn from(value: &BigFloat) -> Self {
+        let (raw, _, s, _, _) = value.0.as_raw_parts().unwrap();
+        let exponent = value.0.exponent().unwrap();
+
+        let mut bits = exponent;
+        let mut index = MATISSA_LEN - 1;
+        let mut res = BigInt::zero();
+        while bits > 0 {
+            res += (BigInt::from_u64(raw[index as usize]).unwrap())
+                << (astro_float::WORD_BIT_SIZE * index);
+            bits -= astro_float::WORD_BIT_SIZE as i32;
+            index -= 1;
+        }
+        res >>= (PRECISION as i32) - exponent;
+        if s.is_negative() {
+            res.neg()
+        } else {
+            res
+        }
+    }
+}
+
 impl CastToZp<BigUint> for BigFloat {
     fn cast(&self, q: &BigUint) -> BigUint {
-        let mut consts = Consts::new().unwrap();
-        let (sign, radix_repr, mut ex) = self
-            .0
-            .round(0, ROUNDING_MODE)
-            .convert_to_radix(astro_float::Radix::Dec, ROUNDING_MODE, &mut consts)
-            .unwrap();
+        let (raw, _, s, _, _) = self.0.as_raw_parts().unwrap();
+        let exponent = self.0.exponent().unwrap();
 
-        if ex < 0 {
-            ex = 0;
+        let mut bits = exponent;
+        let mut index = MATISSA_LEN - 1;
+        let mut res = BigUint::zero();
+        while bits > 0 {
+            res += (BigUint::from_u64(raw[index as usize]).unwrap())
+                << (astro_float::WORD_BIT_SIZE * index);
+            bits -= astro_float::WORD_BIT_SIZE as i32;
+            index -= 1;
+        }
+        res >>= (PRECISION as i32) - exponent;
+
+        res %= q;
+        if s.is_negative() {
+            return q - res;
         }
 
-        let v = BigUint::from_radix_be(&radix_repr[..(ex as usize)], 10).unwrap() % q;
-
-        if sign.is_negative() {
-            return q - v;
-        }
-
-        v
+        res
     }
 }
 
@@ -288,4 +314,36 @@ impl std::fmt::Display for BigFloat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const K: usize = 128;
+
+    #[test]
+    fn convert_bigfloat_to_biguint() {
+        // This suffices to test CastToZp<BigUint> for BigFloat since both
+        // `From<BigFloat> for BigInt` and `CastToZp<BigUint> for BigFloat` follow the
+        // process
+        for _ in 0..K {
+            let float = BigFloat(AstroBFloat::random_normal(PRECISION, 0, 100));
+            let bigint: BigInt = (&float).into();
+
+            // expected
+            let expected_bigint = {
+                let mut consts = Consts::new().unwrap();
+                let (sign, radix_repr, mut ex) = float
+                    .0
+                    // .round(0, ROUNDING_MODE)
+                    .convert_to_radix(astro_float::Radix::Dec, ROUNDING_MODE, &mut consts)
+                    .unwrap();
+                if sign.is_negative() {
+                    BigInt::from_radix_be(num_bigint::Sign::Minus, &radix_repr[..(ex as usize)], 10)
+                        .unwrap()
+                } else {
+                    BigInt::from_radix_be(num_bigint::Sign::Plus, &radix_repr[..(ex as usize)], 10)
+                        .unwrap()
+                }
+            };
+
+            assert_eq!(bigint, expected_bigint, "{:?}", float);
+        }
+    }
 }

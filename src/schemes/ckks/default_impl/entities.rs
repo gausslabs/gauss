@@ -21,12 +21,17 @@ use crate::{
     keys::{Decryptor, Encryptor, LevelDecoder, LevelEncoder, SecretKey},
     parameters::{CkksEncDecParameters, Parameters},
     schemes::{
-        ckks::ops::{secret_key_decryption, secret_key_encryption, simd_decode, simd_encode},
+        ckks::ops::{
+            secret_key_decryption, secret_key_encryption, simd_decode, simd_encode,
+            ScaledCkksCiphertext,
+        },
         ops::generate_ternery_secret_with_hamming_weight,
         WithGlobal,
     },
     utils::{convert::TryConvertFrom, moduli_chain_to_biguint, psi_powers},
 };
+
+use super::CkksCiphertext;
 
 type DefaultBigFloat = crate::core_crypto::num::big_float::BigFloat;
 type DefaultComplex = Complex<DefaultBigFloat>;
@@ -102,9 +107,11 @@ where
     fn encrypt(&self, message: &[DefaultComplex]) -> CkksCiphertextGenericStorage<M> {
         CkksClientParametersU64::with_global(|params| {
             DefaultU64SeededRandomGenerator::with_local_mut(|rng| {
+                let delta = params.delta();
+
                 // encode
                 let mut m_poly = M::zeros(params.q_moduli_chain_len, params.ring_size());
-                simd_encode(&mut m_poly, message, params, 0, params.delta());
+                simd_encode(&mut m_poly, message, params, 0, delta);
 
                 // `encrypt` function wants m_poly in Evaluation representation.
                 foward_lazy(&mut m_poly, params.q_nttops_at_level(0));
@@ -116,6 +123,7 @@ where
                     is_lazy: false,
                     seed: <ChaCha8Rng as SeedableRng>::Seed::default(),
                     representation: Representation::Evaluation,
+                    scale: delta.clone(),
                 };
                 secret_key_encryption(&mut c_out, &m_poly, self, params, rng, 0);
 
@@ -145,7 +153,7 @@ where
 
             // decode
             let mut m_out = vec![DefaultComplex::zero(); params.ring_size() >> 1];
-            simd_decode(&m_poly, params, c.level(), params.delta(), &mut m_out);
+            simd_decode(&m_poly, params, c.level(), c.scale(), &mut m_out);
             m_out
         })
     }
@@ -278,6 +286,7 @@ pub struct CkksCiphertextGenericStorage<M> {
     is_lazy: bool,
     seed: <ChaCha8Rng as SeedableRng>::Seed,
     representation: Representation,
+    scale: DefaultBigFloat,
 }
 
 impl<M: MatrixMut<MatElement = u64>> Ciphertext for CkksCiphertextGenericStorage<M>
@@ -334,6 +343,20 @@ where
 
     fn is_lazy_mut(&mut self) -> &mut bool {
         &mut self.is_lazy
+    }
+}
+
+impl<M: MatrixMut<MatElement = u64>> ScaledCkksCiphertext for CkksCiphertextGenericStorage<M>
+where
+    <M as Matrix>::R: RowMut,
+{
+    type F = DefaultBigFloat;
+    fn scale(&self) -> &Self::F {
+        &self.scale
+    }
+
+    fn scale_mut(&mut self) -> &mut Self::F {
+        &mut self.scale
     }
 }
 
