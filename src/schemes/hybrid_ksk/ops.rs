@@ -3,7 +3,7 @@ use num_traits::{AsPrimitive, PrimInt, Unsigned};
 
 use crate::{
     core_crypto::{
-        matrix::{Matrix, MatrixMut, RowMut},
+        matrix::{Matrix, MatrixEntity, MatrixMut, RowMut},
         modulus::{BarrettBackend, ModulusVecBackend, MontgomeryBackend, MontgomeryScalar},
         ntt::Ntt,
         num::UnsignedInteger,
@@ -247,7 +247,7 @@ pub fn generate_key<
 /// polynomials c0_out and c1_out are in Evaluation representation
 pub fn keyswitch<
     M: Matrix,
-    MMut: MatrixMut<MatElement = M::MatElement> + Clone,
+    MMut: MatrixMut<MatElement = M::MatElement> + MatrixEntity + Clone,
     P: HybridKskRuntimeParameters<Scalar = M::MatElement>,
 >(
     x: &M,

@@ -10,7 +10,7 @@ use rand_chacha::{ChaCha8Core, ChaCha8Rng};
 use crate::{
     ciphertext::{Ciphertext, Representation, RlweCiphertext, SeededCiphertext},
     core_crypto::{
-        matrix::{Matrix, MatrixMut, RowMut},
+        matrix::{Matrix, MatrixEntity, MatrixMut, RowMut},
         modulus::{ModulusBackendConfig, ModulusVecBackend, NativeModulusBackend},
         ntt::{NativeNTTBackend, Ntt, NttConfig},
         num::{big_float::BigFloat, BFloat, ComplexNumber},
@@ -45,7 +45,7 @@ pub static NATIVE_CKKS_CLIENT_PARAMETERS_U64: OnceLock<
     >,
 > = OnceLock::new();
 
-impl<M: MatrixMut<MatElement = u64>> LevelEncoder<M> for Vec<DefaultComplex>
+impl<M: MatrixMut<MatElement = u64> + MatrixEntity> LevelEncoder<M> for Vec<DefaultComplex>
 where
     <M as Matrix>::R: RowMut,
 {
@@ -99,8 +99,12 @@ impl CkksSecretKey {
     }
 }
 
-impl<M: MatrixMut<MatElement = u64> + Clone + TryConvertFrom<[i32], Parameters = [u64]>>
-    Encryptor<[DefaultComplex], CkksCiphertextGenericStorage<M>> for CkksSecretKey
+impl<
+        M: MatrixMut<MatElement = u64>
+            + MatrixEntity
+            + Clone
+            + TryConvertFrom<[i32], Parameters = [u64]>,
+    > Encryptor<[DefaultComplex], CkksCiphertextGenericStorage<M>> for CkksSecretKey
 where
     <M as Matrix>::R: RowMut,
 {
@@ -133,8 +137,12 @@ where
     }
 }
 
-impl<M: MatrixMut<MatElement = u64> + Clone + TryConvertFrom<[i32], Parameters = [u64]>>
-    Decryptor<Vec<DefaultComplex>, CkksCiphertextGenericStorage<M>> for CkksSecretKey
+impl<
+        M: MatrixMut<MatElement = u64>
+            + Clone
+            + MatrixEntity
+            + TryConvertFrom<[i32], Parameters = [u64]>,
+    > Decryptor<Vec<DefaultComplex>, CkksCiphertextGenericStorage<M>> for CkksSecretKey
 where
     <M as Matrix>::R: RowMut,
 {
@@ -289,8 +297,9 @@ pub struct CkksCiphertextGenericStorage<M> {
     scale: DefaultBigFloat,
 }
 
-impl<M: MatrixMut<MatElement = u64>> Ciphertext for CkksCiphertextGenericStorage<M>
+impl<M> Ciphertext for CkksCiphertextGenericStorage<M>
 where
+    M: MatrixMut<MatElement = u64> + MatrixEntity,
     <M as Matrix>::R: RowMut,
 {
     type Poly = M;
@@ -317,8 +326,9 @@ impl<M> SeededCiphertext for CkksCiphertextGenericStorage<M> {
     }
 }
 
-impl<M: MatrixMut<MatElement = u64>> RlweCiphertext for CkksCiphertextGenericStorage<M>
+impl<M> RlweCiphertext for CkksCiphertextGenericStorage<M>
 where
+    M: MatrixMut<MatElement = u64> + MatrixEntity,
     <M as Matrix>::R: RowMut,
 {
     fn c_partq(&self) -> &[Self::Poly] {

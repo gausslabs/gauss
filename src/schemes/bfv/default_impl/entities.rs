@@ -1,7 +1,7 @@
 use crate::{
     ciphertext::{Ciphertext, InitLevelledCiphertext, Representation, RlweCiphertext},
     core_crypto::{
-        matrix::{Drop2Dimension, Matrix, MatrixMut, Row, RowMut},
+        matrix::{Drop2Dimension, Matrix, MatrixEntity, MatrixMut, Row, RowMut},
         modulus::{
             BarrettBackend, ModulusArithmeticBackend, ModulusBackendConfig, ModulusVecBackend,
             MontgomeryBackend, MontgomeryScalar, NativeModulusBackend,
@@ -60,7 +60,7 @@ impl BfvSecretKey {
 
 impl<P> Encryptor<[u64], BfvCiphertextScalarU64GenericStorage<P>> for BfvSecretKey
 where
-    P: TryConvertFrom<[i32], Parameters = [u64]> + MatrixMut<MatElement = u64>,
+    P: TryConvertFrom<[i32], Parameters = [u64]> + MatrixMut<MatElement = u64> + MatrixEntity,
     <P as Matrix>::R: RowMut,
 {
     fn encrypt(&self, message: &[u64]) -> BfvCiphertextScalarU64GenericStorage<P> {
@@ -77,6 +77,7 @@ impl<P> Decryptor<Vec<u64>, BfvCiphertextScalarU64GenericStorage<P>> for BfvSecr
 where
     P: Matrix<MatElement = u64>
         + MatrixMut
+        + MatrixEntity
         + Drop2Dimension
         + TryConvertFrom<[i32], Parameters = [u64]>
         + Clone,
@@ -100,7 +101,7 @@ pub(super) struct BfvCiphertextScalarU64GenericStorage<P> {
 impl<P, R> Ciphertext for BfvCiphertextScalarU64GenericStorage<P>
 where
     R: Row<Element = u64> + RowMut,
-    P: Matrix<MatElement = u64> + MatrixMut<MatElement = u64, R = R>,
+    P: Matrix<MatElement = u64> + MatrixMut<MatElement = u64, R = R> + MatrixEntity,
 {
     type Scalar = u64;
     type Poly = P;
@@ -133,7 +134,7 @@ impl<P> InitLevelledCiphertext for BfvCiphertextScalarU64GenericStorage<P> {
 impl<P, R> RlweCiphertext for BfvCiphertextScalarU64GenericStorage<P>
 where
     R: Row<Element = u64> + RowMut,
-    P: Matrix<MatElement = u64> + MatrixMut<MatElement = u64, R = R>,
+    P: Matrix<MatElement = u64> + MatrixMut<MatElement = u64, R = R> + MatrixEntity,
 {
     fn c_partq(&self) -> &[Self::Poly] {
         &self.c_partq
