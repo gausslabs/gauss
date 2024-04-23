@@ -5,9 +5,12 @@ use itertools::{izip, Itertools};
 use num_bigint::{BigInt, BigUint, ToBigInt};
 use num_traits::{ToPrimitive, Zero};
 
-use crate::core_crypto::{
-    matrix::{Matrix, MatrixMut, RowMut},
-    num::big_float::BigFloat,
+use crate::{
+    core_crypto::{
+        matrix::{Matrix, MatrixMut, RowMut},
+        num::big_float::BigFloat,
+    },
+    parameters::{self, Parameters},
 };
 
 use super::{mod_inverse, moduli_chain_to_biguint};
@@ -16,6 +19,15 @@ pub trait TryConvertFrom<T: ?Sized> {
     type Parameters: ?Sized;
 
     fn try_convert_from(value: &T, parameters: &Self::Parameters) -> Self;
+}
+
+pub trait TryConvertFromIter<'a, T>
+where
+    T: 'a,
+{
+    type Parameters: ?Sized;
+
+    fn try_convert_from(iter: impl Iterator<Item = &'a T>, parameters: &Self::Parameters) -> Self;
 }
 
 pub trait TryConvertFromParts<T>: TryConvertFrom<T> {
@@ -66,6 +78,31 @@ impl TryConvertFrom<[i32]> for AVec<AVec<u64>> {
             AVec::from_iter(CACHELINE_ALIGN, row_iter)
         });
         AVec::from_iter(CACHELINE_ALIGN, res_iter)
+    }
+}
+
+impl<'a> TryConvertFromIter<'a, f64> for Vec<Vec<u64>> {
+    type Parameters = [u64];
+    // TODO we have to transpose the matrix, becasue we can only use the iter once.
+    fn try_convert_from(
+        iter: impl Iterator<Item = &'a f64>,
+        parameters: &Self::Parameters,
+    ) -> Self {
+        iter.map(|signed_x| {
+            parameters
+                .iter()
+                .map(|qi| {
+                    let v = signed_x.abs() as u64;
+                    let v = v % qi;
+                    if signed_x.is_negative() {
+                        qi - v
+                    } else {
+                        v
+                    }
+                })
+                .collect_vec()
+        })
+        .collect_vec()
     }
 }
 
